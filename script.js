@@ -5,6 +5,7 @@ const statusElement = document.getElementById('status');
 const loadingElement = document.getElementById('loading');
 const startBtn = document.getElementById('start-btn');
 const wechatPrompt = document.getElementById('wechat-prompt');
+const loadingStatus = document.getElementById('loading-status');
 
 // 检查是否在微信中
 const isWechat = /MicroMessenger/i.test(navigator.userAgent);
@@ -14,14 +15,15 @@ if (isWechat) {
 
 function updateStatus(msg) {
     console.log(msg);
-    statusElement.innerText = msg;
+    if (statusElement) statusElement.innerText = msg;
+    if (loadingStatus) loadingStatus.innerText = msg;
 }
 
-updateStatus("正在连接服务器...");
+updateStatus("正在连接 MediaPipe 服务器...");
 
 function onResults(results) {
-    // 第一次得到结果时隐藏加载层
-    if (loadingElement.style.opacity !== '0') {
+    // 第一次得到结果时彻底移除加载层
+    if (loadingElement && loadingElement.style.display !== 'none') {
         loadingElement.style.opacity = '0';
         setTimeout(() => {
             loadingElement.style.display = 'none';
@@ -51,10 +53,24 @@ function onResults(results) {
 
 const faceMesh = new FaceMesh({
     locateFile: (file) => {
-        updateStatus(`正在下载模型: ${file}`);
-        return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+        const url = `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+        updateStatus(`正在下载: ${file}`);
+
+        // 当第一个文件开始下载时，我们可以尝试稍微隐藏一点加载层或者确保按钮可见
+        // 但最稳妥的是让用户能点到按钮
+        return url;
     }
 });
+
+// 模拟初始化完成 (脚本加载后)
+setTimeout(() => {
+    if (loadingElement && loadingElement.style.opacity !== '0') {
+        updateStatus("核心资源已就绪，请点击下方的“开启追踪”");
+        // 将加载层透明度降低，并允许点击下方的按钮
+        loadingElement.style.background = 'rgba(13, 17, 23, 0.7)';
+        loadingElement.classList.add('interactive');
+    }
+}, 2500);
 
 faceMesh.setOptions({
     maxNumFaces: 1,
