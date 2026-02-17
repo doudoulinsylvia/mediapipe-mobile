@@ -12,12 +12,21 @@ if (isWechat) {
     wechatPrompt.classList.add('show');
 }
 
+function updateStatus(msg) {
+    console.log(msg);
+    statusElement.innerText = msg;
+}
+
+updateStatus("正在连接服务器...");
+
 function onResults(results) {
-    // 隐藏加载层 (第一次得到结果时)
+    // 第一次得到结果时隐藏加载层
     if (loadingElement.style.opacity !== '0') {
         loadingElement.style.opacity = '0';
-        setTimeout(() => loadingElement.style.display = 'none', 500);
-        statusElement.innerText = "追踪运行中";
+        setTimeout(() => {
+            loadingElement.style.display = 'none';
+            updateStatus("追踪运行中");
+        }, 500);
     }
 
     canvasCtx.save();
@@ -42,6 +51,7 @@ function onResults(results) {
 
 const faceMesh = new FaceMesh({
     locateFile: (file) => {
+        updateStatus(`正在下载模型: ${file}`);
         return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
     }
 });
@@ -63,15 +73,15 @@ startBtn.addEventListener('click', async () => {
     if (!camera) {
         camera = new Camera(videoElement, {
             onFrame: async () => {
-                // 设置 canvas 尺寸与视频一致
                 if (canvasElement.width !== videoElement.videoWidth) {
                     canvasElement.width = videoElement.videoWidth;
                     canvasElement.height = videoElement.videoHeight;
+                    updateStatus("摄像头已就绪，识别中...");
                 }
                 await faceMesh.send({ image: videoElement });
             },
-            width: 1280,
-            height: 720
+            width: 640,
+            height: 480
         });
     }
 
