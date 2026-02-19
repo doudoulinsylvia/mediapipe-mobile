@@ -27,7 +27,7 @@ const State = {
     FINISHED: 'FINISHED'
 };
 
-const BACKEND_URL = "http://192.168.2.25:5000/upload"; // 请替换为您电脑的局域网 IP
+const BACKEND_URL = "https://isochronal-claudine-flimsies.ngrok-free.dev/upload"; // 请替换为您电脑的局域网 IP
 
 let currentState = State.LOADING;
 let subjectInfo = {};
