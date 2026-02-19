@@ -500,23 +500,31 @@ async function exportData() {
 
 async function syncWithBackend(type, payload) {
     if (!BACKEND_URL.includes("YOUR_COMPUTER_IP")) {
-        console.log(`📡 Syncing ${type} data (${payload.length} rows)...`);
-        const response = await fetch(BACKEND_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'ngrok-skip-browser-warning': 'true' // 绕过 ngrok 的浏览器警告页
-            },
-            body: JSON.stringify({
-                type: type,
-                subject_id: subjectInfo.id,
-                payload: payload
-            })
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const result = await response.json();
-        console.log(`✅ ${type} sync success:`, result);
-        return result;
+        console.log(`📡 Syncing ${type} data (${payload.length} rows) to ${BACKEND_URL}...`);
+        try {
+            const response = await fetch(BACKEND_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'ngrok-skip-browser-warning': 'true'
+                },
+                body: JSON.stringify({
+                    type: type,
+                    subject_id: subjectInfo.id,
+                    payload: payload
+                })
+            });
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`HTTP ${response.status}: ${errText}`);
+            }
+            const result = await response.json();
+            console.log(`✅ ${type} sync success:`, result);
+            return result;
+        } catch (e) {
+            console.error(`❌ Fetch error for ${type}:`, e);
+            throw new Error(`无法连接到后台: ${e.message} (请检查 ngrok 地址是否正确)`);
+        }
     } else {
         console.warn("Backend URL not configured, skipping sync.");
     }
@@ -543,6 +551,24 @@ function downloadCSV(csv, filename) {
 
 // 绑定开始按钮
 startBtn.addEventListener('click', startExperiment);
+
+document.getElementById('test-connection-btn').addEventListener('click', async () => {
+    updateStatus("正在测试服务器连通性...");
+    try {
+        const rootUrl = BACKEND_URL.replace('/upload', '/');
+        const response = await fetch(rootUrl, {
+            headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
+        if (response.ok) {
+            const text = await response.text();
+            alert("✅ 连接成功! 服务器返回: " + text);
+        } else {
+            alert("❌ 连接失败: 状态码 " + response.status);
+        }
+    } catch (e) {
+        alert("❌ 无法访问服务器: " + e.message + "\n请确认电脑上的 server.py 正在运行，且手机能访问互联网值。");
+    }
+});
 
 // 检查微信并启动
 const isWechat = /MicroMessenger/i.test(navigator.userAgent);

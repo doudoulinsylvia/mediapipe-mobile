@@ -5,8 +5,8 @@ from flask_cors import CORS
 from datetime import datetime
 
 app = Flask(__name__)
-# 允许跨域请求，移动端 H5 必备
-CORS(app)
+# 允许跨域请求，并显式放行所有 Header (对于 ngrok 自定义 Header 非常重要)
+CORS(app, resources={r"/*": {"origins": "*", "allow_headers": "*", "methods": "*"}})
 
 # 存储数据的文件夹
 DATA_DIR = 'received_data'
