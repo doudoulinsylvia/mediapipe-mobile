@@ -28,7 +28,7 @@ const State = {
 };
 
 // ✅ 请将下方 URL 替换为您的 Google Apps Script 部署地址
-const BACKEND_URL = "https://script.google.com/macros/s/AKfycbwZDT0hB4aDm_wHckKRndjB0E0wBwqAjNIS_6iSjI8FJUUZiHfxypBpslvZr7fyRahMUA/exec";
+const BACKEND_URL = "https://script.google.com/macros/s/AKfycbzjb2x1vhDStjDxu3k7qjWZhFUeOZ4xjAnDWvY-X_xXf6sxLKJZ6qiOlP7VJa4WPrfxPA/exec";
 // Last Update: 2026-02-19 21:45
 
 let currentState = State.LOADING;
