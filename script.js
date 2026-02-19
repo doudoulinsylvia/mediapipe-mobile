@@ -8,7 +8,7 @@ const startBtn = document.getElementById('start-btn');
 const wechatPrompt = document.getElementById('wechat-prompt');
 
 // 实验参数
-const TRIAL_LIMIT = 3;
+const TRIAL_LIMIT = 3; // 正式实验试次数
 const PROBS = [5, 10, 25, 50, 75, 90, 95];
 const CERTAINS = Array.from({ length: 21 }, (_, i) => i * 2); // 0, 2, ..., 40
 const BG_COLOR = '#9b9b9b';
@@ -27,8 +27,9 @@ const State = {
     FINISHED: 'FINISHED'
 };
 
-const BACKEND_URL = "https://isochronal-claudine-flimsies.ngrok-free.dev/upload"; // 请替换为您电脑的局域网 IP
-// Last Update: 2026-02-19 20:17
+// ✅ 请将下方 URL 替换为您的 Google Apps Script 部署地址
+const BACKEND_URL = "YOUR_GOOGLE_SCRIPT_URL_HERE";
+// Last Update: 2026-02-19 21:45
 
 let currentState = State.LOADING;
 let subjectInfo = {};
@@ -197,7 +198,7 @@ function mapX(rx) {
 // 2. 实验逻辑
 // ==========================================================================
 function startExperiment() {
-    updateStatus("V1.0.0 - 环境载入中...");
+    updateStatus("指令加载中...");
     subjectInfo = {
         id: document.getElementById('subject-id').value,
         name: document.getElementById('subject-name').value,
@@ -513,34 +514,27 @@ async function exportData() {
 }
 
 async function syncWithBackend(type, payload) {
-    if (!BACKEND_URL.includes("YOUR_COMPUTER_IP")) {
-        console.log(`📡 Syncing ${type} data (${payload.length} rows) to ${BACKEND_URL}...`);
-        try {
-            const response = await fetch(BACKEND_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'ngrok-skip-browser-warning': 'true'
-                },
-                body: JSON.stringify({
-                    type: type,
-                    subject_id: subjectInfo.id,
-                    payload: payload
-                })
-            });
-            if (!response.ok) {
-                const errText = await response.text();
-                throw new Error(`HTTP ${response.status}: ${errText}`);
-            }
-            const result = await response.json();
-            console.log(`✅ ${type} sync success:`, result);
-            return result;
-        } catch (e) {
-            console.error(`❌ Fetch error for ${type}:`, e);
-            throw new Error(`无法连接到后台: ${e.message} (请检查 ngrok 地址是否正确)`);
-        }
-    } else {
-        console.warn("Backend URL not configured, skipping sync.");
+    if (BACKEND_URL === "YOUR_GOOGLE_SCRIPT_URL_HERE") {
+        console.warn("❗ Backend URL not configured, skipping sync.");
+        return;
+    }
+    console.log(`📡 Syncing ${type} data (${payload.length} rows) to Google Sheets...`);
+    try {
+        const response = await fetch(BACKEND_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' }, // Google Apps Script 需要 text/plain
+            body: JSON.stringify({
+                type: type,
+                subject_id: subjectInfo.id,
+                payload: payload
+            }),
+            mode: 'no-cors' // Google Apps Script 必须使用 no-cors
+        });
+        // no-cors 模式下 response 是 opaque，无法读取内容，但数据已发出
+        console.log(`✅ ${type} data sent to Google Sheets`);
+    } catch (e) {
+        console.error(`❌ Fetch error for ${type}:`, e);
+        throw new Error(`无法连接到 Google Sheets: ${e.message}`);
     }
 }
 
@@ -565,35 +559,6 @@ function downloadCSV(csv, filename) {
 
 // 绑定开始按钮
 startBtn.addEventListener('click', startExperiment);
-
-document.getElementById('test-connection-btn').addEventListener('click', async () => {
-    const targetUrl = BACKEND_URL.replace('/upload', '/');
-    updateStatus(`正在进行基础 Ping 测试: ${targetUrl}...`);
-
-    try {
-        // 第一阶段：基础测试（不带 Header，排除 Header 导致的 CORS 问题）
-        const pingResponse = await fetch(targetUrl, { cache: 'no-cache' });
-        const pingText = await pingResponse.text();
-
-        updateStatus("基础测试通过！正在进行安全绕过测试...");
-
-        // 第二阶段：带 Header 测试
-        const response = await fetch(targetUrl, {
-            headers: { 'ngrok-skip-browser-warning': 'true' },
-            cache: 'no-cache'
-        });
-
-        if (response.ok) {
-            alert("✅ 全线通车！\n服务器状态: " + pingText + "\n\n您可以开始实验了，数据将自动同步。");
-        } else {
-            alert("⚠️ 基础连接 OK，但权限测试失败: " + response.status);
-        }
-    } catch (e) {
-        const errorMsg = e.message;
-        alert(`❌ 彻底无法访问 (Load failed)\n\n原因诊断:\n1. 您的手机浏览器拦截了对 ${targetUrl} 的访问。\n2. 请在手机地址栏手动输入一次该地址并确认能看到网页。\n3. 报错信息: ${errorMsg}`);
-        console.error("Diagnostic failed:", e);
-    }
-});
 
 // 检查微信并启动
 const isWechat = /MicroMessenger/i.test(navigator.userAgent);
