@@ -183,7 +183,7 @@ function mapX(rx) {
 // 2. 实验逻辑
 // ==========================================================================
 function startExperiment() {
-    updateStatus("DEBUG_V5 - 指令加载中...");
+    updateStatus("DEBUG_V6 - 指令加载中...");
     subjectInfo = {
         id: document.getElementById('subject-id').value,
         name: document.getElementById('subject-name').value,
@@ -558,14 +558,15 @@ document.getElementById('test-connection-btn').addEventListener('click', async (
 
     try {
         // 第一阶段：基础测试（不带 Header，排除 Header 导致的 CORS 问题）
-        const pingResponse = await fetch(targetUrl);
+        const pingResponse = await fetch(targetUrl, { cache: 'no-cache' });
         const pingText = await pingResponse.text();
 
         updateStatus("基础测试通过！正在进行安全绕过测试...");
 
         // 第二阶段：带 Header 测试
         const response = await fetch(targetUrl, {
-            headers: { 'ngrok-skip-browser-warning': 'true' }
+            headers: { 'ngrok-skip-browser-warning': 'true' },
+            cache: 'no-cache'
         });
 
         if (response.ok) {
