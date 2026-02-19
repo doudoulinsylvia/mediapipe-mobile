@@ -513,29 +513,53 @@ async function exportData() {
     }
 }
 
-async function syncWithBackend(type, payload) {
+function syncWithBackend(type, payload) {
     if (BACKEND_URL === "YOUR_GOOGLE_SCRIPT_URL_HERE") {
         console.warn("❗ Backend URL not configured, skipping sync.");
-        return;
+        return Promise.resolve();
     }
     console.log(`📡 Syncing ${type} data (${payload.length} rows) to Google Sheets...`);
-    try {
-        const response = await fetch(BACKEND_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain' }, // Google Apps Script 需要 text/plain
-            body: JSON.stringify({
+
+    return new Promise((resolve, reject) => {
+        try {
+            // 使用隐藏 iframe + form 提交，彻底绕过 CORS 和重定向问题
+            const iframeName = 'gs_target_' + Date.now();
+            const iframe = document.createElement('iframe');
+            iframe.name = iframeName;
+            iframe.style.display = 'none';
+            document.body.appendChild(iframe);
+
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = BACKEND_URL;
+            form.target = iframeName;
+
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'data';
+            input.value = JSON.stringify({
                 type: type,
                 subject_id: subjectInfo.id,
                 payload: payload
-            }),
-            mode: 'no-cors' // Google Apps Script 必须使用 no-cors
-        });
-        // no-cors 模式下 response 是 opaque，无法读取内容，但数据已发出
-        console.log(`✅ ${type} data sent to Google Sheets`);
-    } catch (e) {
-        console.error(`❌ Fetch error for ${type}:`, e);
-        throw new Error(`无法连接到 Google Sheets: ${e.message}`);
-    }
+            });
+
+            form.appendChild(input);
+            document.body.appendChild(form);
+            form.submit();
+
+            console.log(`✅ ${type} data submitted to Google Sheets`);
+
+            // 等待几秒后清理 DOM
+            setTimeout(() => {
+                document.body.removeChild(form);
+                document.body.removeChild(iframe);
+                resolve();
+            }, 3000);
+        } catch (e) {
+            console.error(`❌ Submit error for ${type}:`, e);
+            reject(new Error(`无法提交到 Google Sheets: ${e.message}`));
+        }
+    });
 }
 
 function jsonToCSV(json) {

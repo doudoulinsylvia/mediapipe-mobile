@@ -12,7 +12,9 @@
 
 function doPost(e) {
     try {
-        var data = JSON.parse(e.postData.contents);
+        // 从表单的 'data' 字段读取 JSON
+        var raw = e.parameter.data;
+        var data = JSON.parse(raw);
         var ss = SpreadsheetApp.getActiveSpreadsheet();
 
         var type = data.type || 'unknown';
