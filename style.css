@@ -1,10 +1,12 @@
 :root {
     --primary-color: #00f2fe;
     --secondary-color: #4facfe;
-    --bg-color: #0d1117;
-    --text-color: #e6edf3;
-    --glass-bg: rgba(255, 255, 255, 0.05);
-    --glass-border: rgba(255, 255, 255, 0.1);
+    --bg-color: #9b9b9b;
+    /* 对应 Pygame 的 BG_COLOR (155, 155, 155) */
+    --modal-bg: #ffffff;
+    --text-color: #000000;
+    --glass-bg: rgba(255, 255, 255, 0.2);
+    --glass-border: rgba(255, 255, 255, 0.3);
 }
 
 * {
@@ -15,64 +17,104 @@
 }
 
 body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: 'Inter', -apple-system, sans-serif;
     background-color: var(--bg-color);
     color: var(--text-color);
     overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
     height: 100vh;
     width: 100vw;
-}
-
-.container {
-    position: relative;
-    width: 100%;
-    height: 100%;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
 }
 
-.video-wrapper {
-    position: relative;
-    width: 90%;
-    max-width: 640px;
-    aspect-ratio: 9 / 16;
-    border-radius: 20px;
-    overflow: hidden;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
-    border: 1px solid var(--glass-border);
-    background: #000;
-}
-
-#input_video {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    transform: scaleX(-1);
-}
-
-#output_canvas {
-    position: absolute;
+/* 视频隐藏但保持运行 */
+.video-container {
+    position: fixed;
     top: 0;
     left: 0;
-    width: 100%;
-    height: 100%;
-    transform: scaleX(-1);
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
 }
 
-.ui-overlay {
-    position: absolute;
-    top: 20px;
+#experiment-canvas {
+    position: fixed;
+    top: 0;
     left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 1;
+}
+
+/* 弹窗层 */
+.overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+}
+
+.modal {
+    background: var(--modal-bg);
+    padding: 30px;
+    border-radius: 20px;
+    width: 90%;
+    max-width: 400px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+}
+
+.modal h2 {
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    font-size: 0.8rem;
+    margin-bottom: 5px;
+    color: #666;
+}
+
+.form-group input,
+.form-group select {
     width: 100%;
-    padding: 0 20px;
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    font-size: 1rem;
+}
+
+button {
+    width: 100%;
+    background: linear-gradient(135deg, var(--secondary-color) 0%, var(--primary-color) 100%);
+    border: none;
+    padding: 15px;
+    border-radius: 15px;
+    color: #000;
+    font-weight: bold;
+    font-size: 1.1rem;
+    margin-top: 10px;
+    cursor: pointer;
+    box-shadow: 0 10px 20px rgba(79, 172, 254, 0.3);
+}
+
+.debug-overlay {
+    position: fixed;
+    top: env(safe-area-inset-top, 20px);
+    left: 20px;
+    z-index: 50;
     pointer-events: none;
-    z-index: 10;
 }
 
 .status-card {
@@ -80,96 +122,42 @@ body {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     border: 1px solid var(--glass-border);
-    padding: 15px 20px;
-    border-radius: 15px;
+    padding: 10px 15px;
+    border-radius: 12px;
     display: flex;
     flex-direction: column;
-    gap: 5px;
 }
 
 .status-title {
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    opacity: 0.6;
+    font-size: 0.6rem;
+    opacity: 0.7;
 }
 
 .status-value {
-    font-size: 1.2rem;
-    font-weight: 600;
-    color: var(--primary-color);
-}
-
-.wechat-prompt {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    padding: 12px;
-    background: linear-gradient(90deg, #ff9a9e 0%, #fecfef 99%, #fecfef 100%);
-    color: #000;
-    text-align: center;
-    font-size: 0.9rem;
+    font-size: 0.8rem;
     font-weight: bold;
-    z-index: 100;
-    display: none;
 }
 
-.wechat-prompt.show {
-    display: block;
-}
-
-.controls {
-    position: absolute;
-    bottom: 40px;
-    z-index: 10;
-}
-
-button {
-    background: linear-gradient(135deg, var(--secondary-color) 0%, var(--primary-color) 100%);
-    border: none;
-    padding: 15px 30px;
-    border-radius: 30px;
-    color: #000;
-    font-weight: bold;
-    font-size: 1rem;
-    cursor: pointer;
-    transition: transform 0.2s, box-shadow 0.2s;
-    box-shadow: 0 10px 20px rgba(79, 172, 254, 0.3);
-}
-
-button:active {
-    transform: scale(0.95);
-}
-
-.loading {
+.loading-overlay {
     position: fixed;
     inset: 0;
-    background: var(--bg-color);
+    background: #000;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     z-index: 1000;
-    transition: opacity 0.5s, background 0.5s;
-    pointer-events: all;
-    /* 默认拦截 */
-}
-
-/* 当开始加载模型时，我们允许点击下层 */
-.loading.interactive {
-    pointer-events: none;
+    color: #fff;
 }
 
 .loader {
-    width: 48px;
-    height: 48px;
-    border: 5px solid var(--text-color);
+    width: 40px;
+    height: 40px;
+    border: 4px solid #fff;
     border-bottom-color: var(--primary-color);
     border-radius: 50%;
-    display: inline-block;
-    box-sizing: border-box;
     animation: rotation 1s linear infinite;
+    margin-bottom: 20px;
 }
 
 @keyframes rotation {
@@ -180,4 +168,17 @@ button:active {
     100% {
         transform: rotate(360deg);
     }
+}
+
+.wechat-prompt {
+    position: fixed;
+    top: 0;
+    width: 100%;
+    background: #ffeb3b;
+    color: #000;
+    padding: 10px;
+    text-align: center;
+    font-weight: bold;
+    z-index: 2000;
+    display: none;
 }
