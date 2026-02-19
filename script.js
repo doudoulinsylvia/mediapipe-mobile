@@ -197,7 +197,7 @@ function mapX(rx) {
 // 2. 实验逻辑
 // ==========================================================================
 function startExperiment() {
-    updateStatus("DEBUG_V6 - 指令加载中...");
+    updateStatus("V1.0.0 - 环境载入中...");
     subjectInfo = {
         id: document.getElementById('subject-id').value,
         name: document.getElementById('subject-name').value,
