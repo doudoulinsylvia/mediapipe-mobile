@@ -8,7 +8,7 @@ const startBtn = document.getElementById('start-btn');
 const wechatPrompt = document.getElementById('wechat-prompt');
 
 // 实验参数
-const TRIAL_LIMIT = 147;
+const TRIAL_LIMIT = 3;
 const PROBS = [5, 10, 25, 50, 75, 90, 95];
 const CERTAINS = Array.from({ length: 21 }, (_, i) => i * 2); // 0, 2, ..., 40
 const BG_COLOR = '#9b9b9b';
@@ -27,13 +27,15 @@ const State = {
     FINISHED: 'FINISHED'
 };
 
+const BACKEND_URL = "http://YOUR_COMPUTER_IP:5000/upload"; // 请替换为您电脑的局域网 IP
+
 let currentState = State.LOADING;
 let subjectInfo = {};
 let trials = [];
 let currentTrialIndex = 0;
 let behaviorLog = [];
 let gazeLog = [];
-let lastGaze = { x: 0, y: 0, valid: false };
+let lastGaze = { x: 0, y: 0, valid: false, landmarks: null };
 
 // MediaPipe 状态
 let faceMesh;
@@ -119,19 +121,27 @@ function onResults(results) {
 
         const raw_x = (raw_lx + raw_rx) / 2.0;
 
-        // 记录 gaze
+        // 记录关键特征点 (Landmarks)
+        lastGaze.landmarks = {
+            leftIris: { x: leftIris.x.toFixed(4), y: leftIris.y.toFixed(4) },
+            rightIris: { x: rightIris.x.toFixed(4), y: rightIris.y.toFixed(4) },
+            leftInner: { x: leftInner.x.toFixed(4), y: leftInner.y.toFixed(4) },
+            leftOuter: { x: leftOuter.x.toFixed(4), y: leftOuter.y.toFixed(4) }
+        };
+
         lastGaze.raw_x = raw_x;
         lastGaze.valid = true;
 
         // 映射到屏幕坐标
         lastGaze.x = mapX(raw_x);
-        lastGaze.y = canvas.height / 2; // 这里简化，主要追踪左右注视
+        lastGaze.y = canvas.height / 2;
 
         if (currentState === State.TRIAL_DECISION || currentState === State.TRIAL_FIXATION || currentState === State.TRIAL_FEEDBACK) {
             recordGazeFrame();
         }
     } else {
         lastGaze.valid = false;
+        lastGaze.landmarks = null;
     }
 }
 
@@ -341,14 +351,24 @@ function nextTrial() {
 }
 
 function recordGazeFrame() {
-    gazeLog.push({
+    const frame = {
         timestamp: performance.now(),
         trial: currentTrialIndex + 1,
         phase: currentState,
         x: lastGaze.x.toFixed(2),
         y: lastGaze.y.toFixed(2),
         valid: lastGaze.valid ? 1 : 0
-    });
+    };
+
+    // 添加特征点
+    if (lastGaze.landmarks) {
+        frame.lip_x = lastGaze.landmarks.leftIris.x;
+        frame.lip_y = lastGaze.landmarks.leftIris.y;
+        frame.rip_x = lastGaze.landmarks.rightIris.x;
+        frame.rip_y = lastGaze.landmarks.rightIris.y;
+    }
+
+    gazeLog.push(frame);
 }
 
 function loop() {
@@ -392,15 +412,45 @@ function loop() {
     }
 }
 
-function exportData() {
+async function exportData() {
     const behaviorCSV = jsonToCSV(behaviorLog);
-    downloadCSV(behaviorCSV, `behavior_${subjectInfo.id}.csv`);
-
-    // Gaze 数据可能很大，可以分块或提示
     const gazeCSV = jsonToCSV(gazeLog);
-    downloadCSV(gazeCSV, `gaze_${subjectInfo.id}.csv`);
 
-    updateStatus("数据已导出");
+    // 1. 本地下载备份 (防止网络问题)
+    downloadCSV(behaviorCSV, `behavior_${subjectInfo.id}.csv`);
+    setTimeout(() => {
+        downloadCSV(gazeCSV, `gaze_${subjectInfo.id}.csv`);
+    }, 1000);
+
+    // 2. 同步到后台服务器
+    updateStatus("正在同步到后台服务器...");
+
+    try {
+        await syncWithBackend('behavior', behaviorLog);
+        await syncWithBackend('gaze', gazeLog);
+        updateStatus("数据同步成功！");
+    } catch (e) {
+        console.error("Sync failed:", e);
+        updateStatus("同步失败，请手动下载。内容: " + e.message);
+    }
+}
+
+async function syncWithBackend(type, payload) {
+    if (!BACKEND_URL.includes("YOUR_COMPUTER_IP")) {
+        const response = await fetch(BACKEND_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: type,
+                subject_id: subjectInfo.id,
+                payload: payload
+            })
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return await response.json();
+    } else {
+        console.warn("Backend URL not configured, skipping sync.");
+    }
 }
 
 function jsonToCSV(json) {
