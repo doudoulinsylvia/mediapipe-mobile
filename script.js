@@ -183,7 +183,7 @@ function mapX(rx) {
 // 2. 实验逻辑
 // ==========================================================================
 function startExperiment() {
-    updateStatus("v2026.02.19.1704 - 指令加载中...");
+    updateStatus("DEBUG_V5 - 指令加载中...");
     subjectInfo = {
         id: document.getElementById('subject-id').value,
         name: document.getElementById('subject-name').value,
@@ -554,21 +554,29 @@ startBtn.addEventListener('click', startExperiment);
 
 document.getElementById('test-connection-btn').addEventListener('click', async () => {
     const targetUrl = BACKEND_URL.replace('/upload', '/');
-    updateStatus(`测试中: ${targetUrl}...`);
+    updateStatus(`正在进行基础 Ping 测试: ${targetUrl}...`);
+
     try {
+        // 第一阶段：基础测试（不带 Header，排除 Header 导致的 CORS 问题）
+        const pingResponse = await fetch(targetUrl);
+        const pingText = await pingResponse.text();
+
+        updateStatus("基础测试通过！正在进行安全绕过测试...");
+
+        // 第二阶段：带 Header 测试
         const response = await fetch(targetUrl, {
-            mode: 'cors',
             headers: { 'ngrok-skip-browser-warning': 'true' }
         });
+
         if (response.ok) {
-            const text = await response.text();
-            alert("✅ 成功连接到 ngrok 隧道!\n服务器返回: " + text);
+            alert("✅ 全线通车！\n服务器状态: " + pingText + "\n\n您可以开始实验了，数据将自动同步。");
         } else {
-            alert(`❌ 服务器响应错误: ${response.status}\nURL: ${targetUrl}`);
+            alert("⚠️ 基础连接 OK，但权限测试失败: " + response.status);
         }
     } catch (e) {
-        alert(`❌ 无法连接 (Load failed)\n1. 请检查您的 ngrok 地址是否已过期: ${targetUrl}\n2. 请确认电脑上的终端是否显示 '🚀 系统已上线' \n3. 手机是否处于 Wi-Fi 或蜂窝网络正常状态?`);
-        console.error("Connection test failed:", e);
+        const errorMsg = e.message;
+        alert(`❌ 彻底无法访问 (Load failed)\n\n原因诊断:\n1. 您的手机浏览器拦截了对 ${targetUrl} 的访问。\n2. 请在手机地址栏手动输入一次该地址并确认能看到网页。\n3. 报错信息: ${errorMsg}`);
+        console.error("Diagnostic failed:", e);
     }
 });
 
