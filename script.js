@@ -499,17 +499,21 @@ async function exportData() {
         await new Promise(r => setTimeout(r, 1000));
         downloadCSV(gazeCSV, `gaze_${subjectInfo.id}.csv`);
 
-        // 2. 同步到后台服务器
-        updateStatus("正在上传行为数据...");
+        // 2. 同步到 Google Sheets（依次发送，等待足够时间）
+        updateStatus("正在上传行为数据到 Google Sheets...");
         await syncWithBackend('behavior', behaviorLog);
 
-        updateStatus("行为数据已同步，正在上传眼动数据 (较慢)...");
+        // 等待 5 秒确保行为数据表单已被 Google 接收处理
+        updateStatus("行为数据已提交，等待确认...");
+        await new Promise(r => setTimeout(r, 5000));
+
+        updateStatus("正在上传眼动数据到 Google Sheets (数据量较大，请耐心等待)...");
         await syncWithBackend('gaze', gazeLog);
 
-        updateStatus("✅ 所有数据同步成功！任务完成。");
+        updateStatus("✅ 所有数据同步成功！任务完成。感谢参与！");
     } catch (e) {
         console.error("Export Error:", e);
-        updateStatus("❌ 发生错误: " + e.name + ": " + e.message + "\n请截图并联系管理员。数据可能已丢失或已在下载列表中。");
+        updateStatus("⚠️ 数据已下载到手机。云端同步遇到问题: " + e.message + "\n请将手机下载的 CSV 文件发送给主试。");
     }
 }
 
