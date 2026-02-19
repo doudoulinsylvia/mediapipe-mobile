@@ -27,7 +27,7 @@ const State = {
     FINISHED: 'FINISHED'
 };
 
-const BACKEND_URL = "http://YOUR_COMPUTER_IP:5000/upload"; // 请替换为您电脑的局域网 IP
+const BACKEND_URL = "http://192.168.2.25:5000/upload"; // 请替换为您电脑的局域网 IP
 
 let currentState = State.LOADING;
 let subjectInfo = {};
@@ -278,23 +278,25 @@ canvas.addEventListener('touchstart', (e) => {
 });
 
 // 处理按钮点击 (Calibration 阶段)
-canvas.addEventListener('click', () => {
+canvas.addEventListener('pointerdown', (e) => {
     if (currentState === State.CALIBRATION) {
-        // 收集当前视角数据
-        let samples = [];
-        // 这里只是示意，实际应该在 onResults 里收集一段时间的均值
-        // 为了演示，直接取当前值
         if (lastGaze.valid) {
             calibData.push(lastGaze.raw_x);
             currentCalibIndex++;
+            updateStatus(`校准点 ${currentCalibIndex}/9 已采集`);
             if (currentCalibIndex >= calibPoints.length) {
                 finishCalibration();
             }
+        } else {
+            updateStatus("未检测到面部，请正对手机后再点击");
+            // 简单震动提示（如果设备支持）
+            if (navigator.vibrate) navigator.vibrate(50);
         }
     } else if (currentState === State.BREAK) {
         currentCalibIndex = 0;
         calibData = [];
         currentState = State.CALIBRATION;
+        updateStatus("休息结束，开始校准");
     }
 });
 
@@ -415,6 +417,13 @@ function loop() {
             ctx.arc(cp.x * canvas.width, cp.y * canvas.height, 20, 0, Math.PI * 2);
             ctx.fill();
             drawText(`请注视红点并点击屏幕 (${currentCalibIndex + 1}/9)`, canvas.width / 2, canvas.height - 100, 20);
+
+            // 新增面部检测状态反馈
+            if (lastGaze.valid) {
+                drawText("✅ 面部已锁定", canvas.width / 2, 50, 18, "#00ff00");
+            } else {
+                drawText("❌ 未检测到面部", canvas.width / 2, 50, 18, "#ff0000");
+            }
             break;
 
         case State.TRIAL_FIXATION:
