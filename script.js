@@ -183,6 +183,7 @@ function mapX(rx) {
 // 2. 实验逻辑
 // ==========================================================================
 function startExperiment() {
+    updateStatus("v2026.02.19.1704 - 指令加载中...");
     subjectInfo = {
         id: document.getElementById('subject-id').value,
         name: document.getElementById('subject-name').value,
