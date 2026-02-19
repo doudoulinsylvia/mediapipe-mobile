@@ -12,17 +12,26 @@ DATA_DIR = "received_data"
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
+@app.route('/', methods=['GET'])
+def probe():
+    return f"🚀 Server is running! Ready to receive data at /upload (Time: {datetime.now()})"
+
 @app.route('/upload', methods=['POST'])
 def upload_data():
-    print(f"\n📩 [{datetime.now().strftime('%H:%M:%S')}] 收到上传请求...")
-    try:
-        data = request.json
+    print(f"\n📩 [{datetime.now().strftime('%H:%M:%S')}] 收到上传请求!")
+    print(f"   - Origin: {request.headers.get('Origin')}")
+    print(f"   - User-Agent: {request.headers.get('User-Agent')}")
         if not data:
+            print("   ❌ 错误: 接收到的 JSON 为空")
             return jsonify({"status": "error", "message": "No data received"}), 400
         
         type = data.get('type', 'unknown')
         subject_id = data.get('subject_id', 'unknown')
         payload = data.get('payload', [])
+        
+        print(f"   - 数据类型: {type}")
+        print(f"   - 被试 ID: {subject_id}")
+        print(f"   - 数据行数: {len(payload)}")
         
         if not payload:
              return jsonify({"status": "success", "message": "Empty payload ignored"}), 200

@@ -467,8 +467,8 @@ function loop() {
 }
 
 async function exportData() {
-    const behaviorCSV = jsonToCSV(behaviorLog);
-    const gazeCSV = jsonToCSV(gazeLog);
+    console.log("🏁 Experiment finished. Starting export...");
+    updateStatus("Experiment finished. Saving data...");
 
     // 1. 本地下载备份 (防止网络问题)
     downloadCSV(behaviorCSV, `behavior_${subjectInfo.id}.csv`);
