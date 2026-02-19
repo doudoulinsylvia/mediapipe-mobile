@@ -5,10 +5,11 @@ from flask_cors import CORS
 from datetime import datetime
 
 app = Flask(__name__)
-# 允许跨域访问，因为 H5 可能在 GitHub Pages (不同域名)
+# 允许跨域请求，移动端 H5 必备
 CORS(app)
 
-DATA_DIR = "received_data"
+# 存储数据的文件夹
+DATA_DIR = 'received_data'
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
@@ -21,24 +22,28 @@ def upload_data():
     print(f"\n📩 [{datetime.now().strftime('%H:%M:%S')}] 收到上传请求!")
     print(f"   - Origin: {request.headers.get('Origin')}")
     print(f"   - User-Agent: {request.headers.get('User-Agent')}")
+    
+    try:
+        data = request.json
         if not data:
             print("   ❌ 错误: 接收到的 JSON 为空")
             return jsonify({"status": "error", "message": "No data received"}), 400
         
-        type = data.get('type', 'unknown')
+        type_str = data.get('type', 'unknown')
         subject_id = data.get('subject_id', 'unknown')
         payload = data.get('payload', [])
         
-        print(f"   - 数据类型: {type}")
+        print(f"   - 数据类型: {type_str}")
         print(f"   - 被试 ID: {subject_id}")
         print(f"   - 数据行数: {len(payload)}")
         
         if not payload:
+             print("   ⚠️ 警告: 负载数据为空，跳过保存")
              return jsonify({"status": "success", "message": "Empty payload ignored"}), 200
 
         # 生成文件名
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{type}_{subject_id}_{timestamp}.csv"
+        filename = f"{type_str}_{subject_id}_{timestamp}.csv"
         filepath = os.path.join(DATA_DIR, filename)
         
         # 写入 CSV
@@ -49,13 +54,16 @@ def upload_data():
                 dict_writer.writeheader()
                 dict_writer.writerows(payload)
             
-            print(f"[{datetime.now()}] Saved {len(payload)} rows to {filename}")
+            print(f"   ✅ 成功: 已保存 {len(payload)} 行数据到 {filename}")
             return jsonify({"status": "success", "message": f"Saved to {filename}"}), 200
         else:
+            print("   ❌ 错误: 无效的负载格式 (不是列表)")
             return jsonify({"status": "error", "message": "Invalid payload format"}), 400
 
     except Exception as e:
-        print(f"Error handling upload: {str(e)}")
+        print(f"   ❌ 异常: 处理上传时发生错误: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':
@@ -71,20 +79,16 @@ if __name__ == '__main__':
         if NGROK_AUTH_TOKEN != "YOUR_NGROK_AUTH_TOKEN_HERE":
             ngrok.set_auth_token(NGROK_AUTH_TOKEN)
         
-        # 启动隧道
+        # 启动隧道 (使用 5001 端口避开 Mac 系统占用)
         public_url = ngrok.connect(5001).public_url
+        print("\n" + "="*50)
         print(f"🚀 系统已上线！")
-        print(f"请将 script.js 中的 BACKEND_URL 修改为:")
+        print(f"请确保 script.js 中的 BACKEND_URL 为:")
         print(f"  const BACKEND_URL = \"{public_url}/upload\";")
         print("="*50 + "\n")
     except Exception as e:
         print("\n❌ Ngrok 启动失败。")
-        if "authentication failed" in str(e):
-            print("原因：未配置有效的 NGROK_AUTH_TOKEN。")
-            print("解决：请在 server.py 中填入您的 Token。")
-        else:
-            print(f"详细错误: {str(e)}")
-        print("您也可以手动运行: pip install pyngrok (如果漏装)\n")
+        print(f"详细错误: {str(e)}")
     
-    # 允许局域网访问，方便手机连接
+    # 允许局域网访问
     app.run(host='0.0.0.0', port=5001)

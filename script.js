@@ -28,7 +28,7 @@ const State = {
 };
 
 const BACKEND_URL = "https://isochronal-claudine-flimsies.ngrok-free.dev/upload"; // 请替换为您电脑的局域网 IP
-// Last Update: 2026-02-19 16:36
+// Last Update: 2026-02-19 16:47
 
 let currentState = State.LOADING;
 let subjectInfo = {};
