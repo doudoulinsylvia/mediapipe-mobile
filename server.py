@@ -14,6 +14,7 @@ if not os.path.exists(DATA_DIR):
 
 @app.route('/upload', methods=['POST'])
 def upload_data():
+    print(f"\n📩 [{datetime.now().strftime('%H:%M:%S')}] 收到上传请求...")
     try:
         data = request.json
         if not data:

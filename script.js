@@ -490,9 +490,13 @@ async function exportData() {
 
 async function syncWithBackend(type, payload) {
     if (!BACKEND_URL.includes("YOUR_COMPUTER_IP")) {
+        console.log(`📡 Syncing ${type} data (${payload.length} rows)...`);
         const response = await fetch(BACKEND_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'ngrok-skip-browser-warning': 'true' // 绕过 ngrok 的浏览器警告页
+            },
             body: JSON.stringify({
                 type: type,
                 subject_id: subjectInfo.id,
@@ -500,7 +504,9 @@ async function syncWithBackend(type, payload) {
             })
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return await response.json();
+        const result = await response.json();
+        console.log(`✅ ${type} sync success:`, result);
+        return result;
     } else {
         console.warn("Backend URL not configured, skipping sync.");
     }
