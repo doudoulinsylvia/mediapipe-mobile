@@ -35,7 +35,7 @@ let trials = [];
 let currentTrialIndex = 0;
 let behaviorLog = [];
 let gazeLog = [];
-let lastGaze = { x: 0, y: 0, valid: false, landmarks: null };
+let lastGaze = { x: 0, y: 0, valid: false, landmarks: null, mesh: null, pupil_size: 0, raw_x: 0.5 };
 
 // MediaPipe 状态
 let faceMesh;
@@ -102,39 +102,56 @@ async function initMediaPipe() {
 
 function onResults(results) {
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-        const lms = results.multiFaceLandmarks[0];
-
-        // 计算眼动特征 (对应 Python 中的逻辑)
-        // 简化版：使用虹膜中心作为特征
-        const leftIris = lms[468];
-        const rightIris = lms[473];
         const leftInner = lms[133];
         const leftOuter = lms[33];
         const rightInner = lms[362];
         const rightOuter = lms[263];
 
-        const h_dist_l = Math.hypot(leftInner.x - leftOuter.x, leftInner.y - leftOuter.y);
-        const h_dist_r = Math.hypot(rightInner.x - rightOuter.x, rightInner.y - rightOuter.y);
+        const leftIrisTop = lms[159];
+        const leftIrisBottom = lms[145];
 
-        const raw_lx = Math.hypot(leftIris.x - leftOuter.x, leftIris.y - leftOuter.y) / h_dist_l;
-        const raw_rx = Math.hypot(rightIris.x - rightInner.x, rightIris.y - rightInner.y) / h_dist_r;
+        // --- 核心计算 (复刻 PC 端 Python 逻辑) ---
+        // 1. 垂直与水平距离 (用于有效性判断)
+        const v_dist = Math.hypot(lms[159].x - lms[145].x, lms[159].y - lms[145].y);
+        const h_dist = Math.hypot(lms[133].x - lms[33].x, lms[133].y - lms[33].y);
+        const valid = (v_dist / (h_dist + 1e-6)) > 0.14 ? 1 : 0;
 
-        const raw_x = (raw_lx + raw_rx) / 2.0;
+        // 2. 映射 X 计算 (lx, rx)
+        const h_dist_lx = Math.hypot(lms[133].x - lms[33].x, lms[133].y - lms[33].y); // 使用水平总宽作为参考
+        const lx = Math.hypot(lms[468].x - lms[33].x, lms[468].y - lms[33].y) / (h_dist_lx + 1e-6);
 
-        // 记录关键特征点 (Landmarks)
-        lastGaze.landmarks = {
-            leftIris: { x: leftIris.x.toFixed(4), y: leftIris.y.toFixed(4) },
-            rightIris: { x: rightIris.x.toFixed(4), y: rightIris.y.toFixed(4) },
-            leftInner: { x: leftInner.x.toFixed(4), y: leftInner.y.toFixed(4) },
-            leftOuter: { x: leftOuter.x.toFixed(4), y: leftOuter.y.toFixed(4) }
-        };
+        const h_dist_rx_total = Math.hypot(lms[263].x - lms[362].x, lms[263].y - lms[362].y);
+        const rx = Math.hypot(lms[473].x - lms[362].x, lms[473].y - lms[362].y) / (h_dist_rx_total + 1e-6);
 
+        const raw_x = (lx + rx) / 2.0;
+
+        // 3. 瞳孔大小计算 (复刻 PC 端 Python 逻辑)
+        const l_iris_size = Math.hypot(lms[469].x - lms[471].x, lms[469].y - lms[471].y);
+        const r_iris_size = Math.hypot(lms[474].x - lms[476].x, lms[474].y - lms[476].y);
+        const pupil_size = ((l_iris_size + r_iris_size) / 2.0) / (h_dist + 1e-6);
+
+        // 记录状态
         lastGaze.raw_x = raw_x;
-        lastGaze.valid = true;
+        lastGaze.valid = !!valid;
+        lastGaze.pupil_size = pupil_size;
 
         // 映射到屏幕坐标
         lastGaze.x = mapX(raw_x);
         lastGaze.y = canvas.height / 2;
+
+        // 记录 468 个点 (关键改进)
+        // 为了 CSV 效率，将其存为特定格式的字符串
+        lastGaze.mesh = lms.map(p => `${p.x.toFixed(4)}:${p.y.toFixed(4)}`).join('|');
+
+        // 记录关键点
+        lastGaze.landmarks = {
+            leftIris: { x: lms[468].x.toFixed(4), y: lms[468].y.toFixed(4) },
+            rightIris: { x: lms[473].x.toFixed(4), y: lms[473].y.toFixed(4) },
+            leftInner: { x: lms[133].x.toFixed(4), y: lms[133].y.toFixed(4) },
+            leftOuter: { x: lms[33].x.toFixed(4), y: lms[33].y.toFixed(4) },
+            rightInner: { x: lms[362].x.toFixed(4), y: lms[362].y.toFixed(4) },
+            rightOuter: { x: lms[263].x.toFixed(4), y: lms[263].y.toFixed(4) }
+        };
 
         if (currentState === State.TRIAL_DECISION || currentState === State.TRIAL_FIXATION || currentState === State.TRIAL_FEEDBACK) {
             recordGazeFrame();
@@ -142,6 +159,7 @@ function onResults(results) {
     } else {
         lastGaze.valid = false;
         lastGaze.landmarks = null;
+        lastGaze.mesh = null;
     }
 }
 
@@ -352,21 +370,35 @@ function nextTrial() {
 
 function recordGazeFrame() {
     const frame = {
-        timestamp: performance.now(),
+        timestamp: performance.now().toFixed(2),
         trial: currentTrialIndex + 1,
         phase: currentState,
         x: lastGaze.x.toFixed(2),
         y: lastGaze.y.toFixed(2),
+        raw_x: lastGaze.raw_x.toFixed(4),
+        pupil_size: lastGaze.pupil_size.toFixed(5),
         valid: lastGaze.valid ? 1 : 0
     };
 
-    // 添加特征点
+    // 添加核心 6 个点
     if (lastGaze.landmarks) {
-        frame.lip_x = lastGaze.landmarks.leftIris.x;
-        frame.lip_y = lastGaze.landmarks.leftIris.y;
-        frame.rip_x = lastGaze.landmarks.rightIris.x;
-        frame.rip_y = lastGaze.landmarks.rightIris.y;
+        frame.lx_iris = lastGaze.landmarks.leftIris.x;
+        frame.ly_iris = lastGaze.landmarks.leftIris.y;
+        frame.rx_iris = lastGaze.landmarks.rightIris.x;
+        frame.ry_iris = lastGaze.landmarks.rightIris.y;
+        frame.lx_inner = lastGaze.landmarks.leftInner.x;
+        frame.ly_inner = lastGaze.landmarks.leftInner.y;
+        frame.lx_outer = lastGaze.landmarks.leftOuter.x;
+        frame.ly_outer = lastGaze.landmarks.leftOuter.y;
+        frame.rx_inner = lastGaze.landmarks.rightInner.x;
+        frame.ry_inner = lastGaze.landmarks.rightInner.y;
+        frame.rx_outer = lastGaze.landmarks.rightOuter.x;
+        frame.ry_outer = lastGaze.landmarks.rightOuter.y;
     }
+
+    // 记录全量面部网格 (468点)
+    // 注意：这将大幅增加 JSON 和 CSV 的体积
+    frame.face_mesh = lastGaze.mesh;
 
     gazeLog.push(frame);
 }
