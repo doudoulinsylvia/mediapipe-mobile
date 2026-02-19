@@ -393,6 +393,8 @@ function nextTrial() {
 
 function recordGazeFrame() {
     const frame = {
+        subject_id: subjectInfo.id || '',
+        subject_name: subjectInfo.name || '',
         timestamp: performance.now().toFixed(2),
         trial: currentTrialIndex + 1,
         phase: currentState,
@@ -419,8 +421,8 @@ function recordGazeFrame() {
         frame.ry_outer = lastGaze.landmarks.rightOuter.y;
     }
 
-    // 记录全量面部网格 (468点)
-    // 注意：这将大幅增加 JSON 和 CSV 的体积
+    // 468 点面部网格 (格式: x1:y1|x2:y2|...|x468:y468)
+    // 分析时用 split('|') 即可还原为坐标数组
     frame.face_mesh = lastGaze.mesh;
 
     gazeLog.push(frame);
