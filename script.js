@@ -102,6 +102,8 @@ async function initMediaPipe() {
 
 function onResults(results) {
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        const lms = results.multiFaceLandmarks[0];
+
         const leftInner = lms[133];
         const leftOuter = lms[33];
         const rightInner = lms[362];
@@ -114,7 +116,8 @@ function onResults(results) {
         // 1. 垂直与水平距离 (用于有效性判断)
         const v_dist = Math.hypot(lms[159].x - lms[145].x, lms[159].y - lms[145].y);
         const h_dist = Math.hypot(lms[133].x - lms[33].x, lms[133].y - lms[33].y);
-        const valid = (v_dist / (h_dist + 1e-6)) > 0.14 ? 1 : 0;
+        const ratio = v_dist / (h_dist + 1e-6);
+        const valid = ratio > 0.14 ? 1 : 0;
 
         // 2. 映射 X 计算 (lx, rx)
         const h_dist_lx = Math.hypot(lms[133].x - lms[33].x, lms[133].y - lms[33].y); // 使用水平总宽作为参考
@@ -133,6 +136,7 @@ function onResults(results) {
         // 记录状态
         lastGaze.raw_x = raw_x;
         lastGaze.valid = !!valid;
+        lastGaze.ratio = ratio; // 新增：保存比例用于调试
         lastGaze.pupil_size = pupil_size;
 
         // 映射到屏幕坐标
@@ -449,6 +453,14 @@ function loop() {
     }
 
     if (currentState !== State.FINISHED) {
+        // 在状态栏实时更新检测信息
+        if (lastGaze.valid) {
+            updateStatus(`🟢 检测到面部 (比例: ${lastGaze.ratio.toFixed(2)})`);
+        } else if (lastGaze.ratio !== undefined) {
+            updateStatus(`🔴 未锁定: 比例 ${lastGaze.ratio.toFixed(2)} < 0.14`);
+        } else {
+            updateStatus("⚪️ 正在寻找面部...");
+        }
         requestAnimationFrame(loop);
     }
 }
