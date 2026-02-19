@@ -468,24 +468,36 @@ function loop() {
 
 async function exportData() {
     console.log("🏁 Experiment finished. Starting export...");
-    updateStatus("Experiment finished. Saving data...");
+    updateStatus("实验完成，正在准备行为数据...");
+
+    const behaviorCSV = jsonToCSV(behaviorLog);
+    updateStatus("行为数据就绪，正在转换眼动网格 (468点，请稍候)...");
+
+    // 给手机一点处理时间
+    await new Promise(r => setTimeout(r, 100));
+    const gazeCSV = jsonToCSV(gazeLog);
+
+    updateStatus("所有数据准备就绪，正在启动下载...");
 
     // 1. 本地下载备份 (防止网络问题)
     downloadCSV(behaviorCSV, `behavior_${subjectInfo.id}.csv`);
     setTimeout(() => {
         downloadCSV(gazeCSV, `gaze_${subjectInfo.id}.csv`);
-    }, 1000);
+    }, 1500);
 
     // 2. 同步到后台服务器
-    updateStatus("正在同步到后台服务器...");
+    await new Promise(r => setTimeout(r, 2000));
+    updateStatus("正在上传行为数据...");
 
     try {
         await syncWithBackend('behavior', behaviorLog);
+        updateStatus("行为数据同步成功！正在上传眼动数据...");
+
         await syncWithBackend('gaze', gazeLog);
-        updateStatus("数据同步成功！");
+        updateStatus("✅ 所有数据同步成功！任务完成。");
     } catch (e) {
         console.error("Sync failed:", e);
-        updateStatus("同步失败，请手动下载。内容: " + e.message);
+        updateStatus("💔 同步失败。文件应已自动下载，请检查手机。错误: " + e.message);
     }
 }
 
