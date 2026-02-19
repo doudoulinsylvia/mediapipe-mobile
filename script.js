@@ -67,37 +67,50 @@ function updateStatus(msg) {
 // 1. 初始化 MediaPipe
 // ==========================================================================
 async function initMediaPipe() {
-    faceMesh = new FaceMesh({
-        locateFile: (file) => {
-            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+    updateStatus("正在初始化 MediaPipe (加载核心引擎)...");
+
+    // 给加载设置一个超时检测
+    const loaderTimeout = setTimeout(() => {
+        if (currentState === State.LOADING) {
+            updateStatus("⚠️ 加载核心引擎过慢，请检查网络是否稳定 (建议切换为 5G/4G 信号强的地方)");
         }
-    });
-
-    faceMesh.setOptions({
-        maxNumFaces: 1,
-        refineLandmarks: true,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5
-    });
-
-    faceMesh.onResults(onResults);
-
-    camera = new Camera(videoElement, {
-        onFrame: async () => {
-            await faceMesh.send({ image: videoElement });
-        },
-        width: 640,
-        height: 480
-    });
+    }, 15000);
 
     try {
+        faceMesh = new FaceMesh({
+            locateFile: (file) => {
+                const url = `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+                console.log("Loading asset:", url);
+                return url;
+            }
+        });
+
+        faceMesh.setOptions({
+            maxNumFaces: 1,
+            refineLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        faceMesh.onResults(onResults);
+
+        camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await faceMesh.send({ image: videoElement });
+            },
+            width: 640,
+            height: 480
+        });
+
         await camera.start();
-        updateStatus("摄像头已启动");
-        loadingOverlay.style.display = 'none';
-        currentState = State.REGISTRATION;
+        clearTimeout(loaderTimeout);
+        updateStatus("✅ 引擎启动成功，请填写被试信息");
+        registrationOverlay.style.display = 'block'; // Assuming 'subject-form' refers to 'registrationOverlay'
+        currentState = State.SUBJECT_INFO;
     } catch (e) {
-        alert("无法访问摄像头，请确保使用 HTTPS 并授予权限。");
-        updateStatus("错误: 摄像头不可用");
+        clearTimeout(loaderTimeout);
+        console.error("MediaPipe Init Error:", e);
+        updateStatus("❌ 初始化失败: " + e.message + "\n请刷新页面重试，或检查该浏览器是否支持摄像头。");
     }
 }
 
