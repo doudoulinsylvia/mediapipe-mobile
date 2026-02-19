@@ -59,7 +59,7 @@ window.addEventListener('resize', resize);
 resize();
 
 function updateStatus(msg) {
-    statusElement.innerText = msg;
+    statusElement.innerHTML = msg;
     console.log(msg);
 }
 
@@ -67,21 +67,20 @@ function updateStatus(msg) {
 // 1. 初始化 MediaPipe
 // ==========================================================================
 async function initMediaPipe() {
-    updateStatus("正在初始化 MediaPipe (加载核心引擎)...");
+    updateStatus("正在载入实验环境，请稍候... <span class='loading-dots'></span>");
 
-    // 给加载设置一个超时检测
-    const loaderTimeout = setTimeout(() => {
+    // 超时检测：如果 20 秒还没动静，可能是网络问题
+    const loaderWatchdog = setTimeout(() => {
         if (currentState === State.LOADING) {
-            updateStatus("⚠️ 加载核心引擎过慢，请检查网络是否稳定 (建议切换为 5G/4G 信号强的地方)");
+            updateStatus("⚠️ 网络加载较慢，正在尝试备用线路，请保持页面开启...");
         }
-    }, 15000);
+    }, 20000);
 
     try {
         faceMesh = new FaceMesh({
             locateFile: (file) => {
-                const url = `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-                console.log("Loading asset:", url);
-                return url;
+                // 使用 fastly CDN 提高全球/多网络加载速度
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/${file}`;
             }
         });
 
@@ -103,14 +102,16 @@ async function initMediaPipe() {
         });
 
         await camera.start();
-        clearTimeout(loaderTimeout);
-        updateStatus("✅ 引擎启动成功，请填写被试信息");
-        registrationOverlay.style.display = 'block'; // Assuming 'subject-form' refers to 'registrationOverlay'
+        clearTimeout(loaderWatchdog);
+
+        updateStatus("✅ 环境检查完毕，请录入信息");
+        document.getElementById('loading-overlay').style.display = 'none';
+        document.getElementById('registration-overlay').style.display = 'block';
         currentState = State.SUBJECT_INFO;
     } catch (e) {
-        clearTimeout(loaderTimeout);
-        console.error("MediaPipe Init Error:", e);
-        updateStatus("❌ 初始化失败: " + e.message + "\n请刷新页面重试，或检查该浏览器是否支持摄像头。");
+        clearTimeout(loaderWatchdog);
+        console.error("Init Error:", e);
+        updateStatus("❌ 启动失败: 请检查您的浏览器是否授权摄像头权限，并使用 HTTPS 访问。");
     }
 }
 
