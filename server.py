@@ -13,6 +13,10 @@ DATA_DIR = 'received_data'
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
+@app.before_request
+def log_request():
+    print(f"   [Request] {request.method} -> {request.path} (from {request.remote_addr})")
+
 @app.route('/', methods=['GET'])
 def probe():
     return f"🚀 Server is running! Ready to receive data at /upload (Time: {datetime.now()})"

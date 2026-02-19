@@ -553,20 +553,22 @@ function downloadCSV(csv, filename) {
 startBtn.addEventListener('click', startExperiment);
 
 document.getElementById('test-connection-btn').addEventListener('click', async () => {
-    updateStatus("正在测试服务器连通性...");
+    const targetUrl = BACKEND_URL.replace('/upload', '/');
+    updateStatus(`测试中: ${targetUrl}...`);
     try {
-        const rootUrl = BACKEND_URL.replace('/upload', '/');
-        const response = await fetch(rootUrl, {
+        const response = await fetch(targetUrl, {
+            mode: 'cors',
             headers: { 'ngrok-skip-browser-warning': 'true' }
         });
         if (response.ok) {
             const text = await response.text();
-            alert("✅ 连接成功! 服务器返回: " + text);
+            alert("✅ 成功连接到 ngrok 隧道!\n服务器返回: " + text);
         } else {
-            alert("❌ 连接失败: 状态码 " + response.status);
+            alert(`❌ 服务器响应错误: ${response.status}\nURL: ${targetUrl}`);
         }
     } catch (e) {
-        alert("❌ 无法访问服务器: " + e.message + "\n请确认电脑上的 server.py 正在运行，且手机能访问互联网值。");
+        alert(`❌ 无法连接 (Load failed)\n1. 请检查您的 ngrok 地址是否已过期: ${targetUrl}\n2. 请确认电脑上的终端是否显示 '🚀 系统已上线' \n3. 手机是否处于 Wi-Fi 或蜂窝网络正常状态?`);
+        console.error("Connection test failed:", e);
     }
 });
 
