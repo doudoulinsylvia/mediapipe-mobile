@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Mobile Gambling Experiment</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+
+  <!-- MediaPipe Solutions -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+</head>
+
+<body>
+  <!-- 微信提示 -->
+  <div id="wechat-prompt" class="wechat-prompt">
+    ⚠️ 微信内可能受限，请点击右上角选择“在浏览器中打开”
+  </div>
+
+  <!-- 背景视频 (隐藏或小窗) -->
+  <div class="video-container">
+    <video id="input_video" playsinline webkit-playsinline></video>
+  </div>
+
+  <!-- 被试信息登记 -->
+  <div id="registration-overlay" class="overlay">
+    <div class="modal">
+      <h2>实验登记</h2>
+      <div class="form-group">
+        <label>ID</label>
+        <input type="text" id="subject-id" placeholder="例如: 01">
+      </div>
+      <div class="form-group">
+        <label>姓名</label>
+        <input type="text" id="subject-name" placeholder="小明">
+      </div>
+      <div class="form-group">
+        <label>标签 (Label)</label>
+        <input type="text" id="subject-label" placeholder="baseline">
+      </div>
+      <div class="form-group">
+        <label>性别</label>
+        <select id="subject-gender">
+          <option value="male">男</option>
+          <option value="female">女</option>
+        </select>
+      </div>
+      <p>请确保网络连接正常</p>
+      <button id="start-btn" type="button">开始实验</button>
+    </div>
+  </div>
+
+  <!-- 实验主画布 -->
+  <canvas id="experiment-canvas"></canvas>
+
+  <!-- 状态叠加层 (调试用) -->
+  <div id="debug-overlay" class="debug-overlay">
+    <div class="status-card">
+      <span class="status-title">系统状态</span>
+      <span id="status" class="status-value">资源加载中...</span>
+    </div>
+  </div>
+
+  <!-- 加载层 -->
+  <div id="loading-overlay" class="loading-overlay">
+    <p id="loading-text">正在载入 MediaPipe 和图片资源...</p>
+  </div>
+
+  <script src="script.js?v=2.0.4"></script>
+</body>
+
+</html>
