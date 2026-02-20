@@ -53,22 +53,10 @@ let calibPoints = [
 ];
 let currentCalibIndex = 0;
 
-// 窗口与画布自适应 (兼容高清屏/Retina屏)
+// 窗口与画布自适应
 function resize() {
-    // 获取屏幕分辨率像素比 ( Retina 屏一般为 2 或 3 )
-    const dpr = window.devicePixelRatio || 1;
-
-    // 设置实际画布的物理像素大小
-    canvas.width = window.innerWidth * dpr;
-    canvas.height = window.innerHeight * dpr;
-
-    // 设置 CSS 显示大小
-    canvas.style.width = `${window.innerWidth}px`;
-    canvas.style.height = `${window.innerHeight}px`;
-
-    // 将绘制上下文全局缩放，这样后面的绘制代码不用改数字
-    ctx.setTransform(1, 0, 0, 1, 0, 0); // 重置矩阵
-    ctx.scale(dpr, dpr);
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
 }
 window.addEventListener('resize', resize);
 resize();
@@ -280,6 +268,25 @@ function drawFixation() {
     drawText("+", canvas.width / 2, canvas.height / 2, 100);
 }
 
+// 等比填充绘制图片 (相当于 CSS object-fit: cover)，防止图片被拉伸变形
+function drawImageCover(ctx, img, x, y, w, h) {
+    const imgRatio = img.width / img.height;
+    const boxRatio = w / h;
+    let srcX = 0, srcY = 0, srcW = img.width, srcH = img.height;
+
+    if (imgRatio > boxRatio) {
+        // 图片比框宽，裁切左右
+        srcW = img.height * boxRatio;
+        srcX = (img.width - srcW) / 2;
+    } else {
+        // 图片比框高，裁切上下
+        srcH = img.width / boxRatio;
+        srcY = (img.height - srcH) / 2;
+    }
+
+    ctx.drawImage(img, srcX, srcY, srcW, srcH, x, y, w, h);
+}
+
 function drawDecision(trial, selectionIndex = -1) {
     const margin = 20; // 边距
     const spacing = 20; // 图片间距
@@ -314,7 +321,8 @@ function drawDecision(trial, selectionIndex = -1) {
         ctx.lineWidth = selectionIndex === i ? 6 : 2;
 
         if (img) {
-            ctx.drawImage(img, coords[i].x, coords[i].y, size, size);
+            // 使用新版函数，防止变形拉伸
+            drawImageCover(ctx, img, coords[i].x, coords[i].y, size, size);
             ctx.strokeRect(coords[i].x, coords[i].y, size, size);
         } else {
             // 没有图片时画个框代替
