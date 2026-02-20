@@ -53,10 +53,22 @@ let calibPoints = [
 ];
 let currentCalibIndex = 0;
 
-// 窗口与画布自适应
+// 窗口与画布自适应 (兼容高清屏/Retina屏)
 function resize() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    // 获取屏幕分辨率像素比 ( Retina 屏一般为 2 或 3 )
+    const dpr = window.devicePixelRatio || 1;
+
+    // 设置实际画布的物理像素大小
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+
+    // 设置 CSS 显示大小
+    canvas.style.width = `${window.innerWidth}px`;
+    canvas.style.height = `${window.innerHeight}px`;
+
+    // 将绘制上下文全局缩放，这样后面的绘制代码不用改数字
+    ctx.setTransform(1, 0, 0, 1, 0, 0); // 重置矩阵
+    ctx.scale(dpr, dpr);
 }
 window.addEventListener('resize', resize);
 resize();
