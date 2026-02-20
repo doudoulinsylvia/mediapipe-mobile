@@ -563,14 +563,14 @@ async function exportData() {
 
         // 2. 同步到 Google Sheets（依次发送，等待足够时间）
         updateStatus("正在上传行为数据到 Google Sheets...");
-        await syncWithBackend('behavior', behaviorLog);
+        await syncWithBackend('behavior_food', behaviorLog);
 
         // 等待 5 秒确保行为数据表单已被 Google 接收处理
         updateStatus("行为数据已提交，等待确认...");
         await new Promise(r => setTimeout(r, 5000));
 
         updateStatus("正在上传眼动数据到 Google Sheets (数据量较大，请耐心等待)...");
-        await syncWithBackend('gaze', gazeLog);
+        await syncWithBackend('gaze_food', gazeLog);
 
         updateStatus("✅ 所有数据同步成功！任务完成。感谢参与！");
     } catch (e) {
