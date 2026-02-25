@@ -560,16 +560,20 @@ async function exportData() {
         updateStatus("正在上传行为数据到 Google Sheets...");
         await syncWithBackend('behavior_food2', behaviorLog);
 
-        // 等待 8 秒确保行为数据表单已被 Google 接收处理
+        // 等待 5 秒确保行为数据表单已被 Google 接收处理
         updateStatus("行为数据已提交，等待确认...");
-        await new Promise(r => setTimeout(r, 8000));
+        await new Promise(r => setTimeout(r, 5000));
 
-        updateStatus(`正在上传眼动数据到 Google Sheets (${gazeLog.length}行，数据量较大，请耐心等待)...`);
-        await syncWithBackend('gaze_food2', gazeLog);
-
-        // 等待 8 秒确保眼动数据也被处理
-        updateStatus("眼动数据已提交，等待确认...");
-        await new Promise(r => setTimeout(r, 8000));
+        // 分块上传眼动数据（每块 20 行，避免表单数据过大导致发送失败）
+        const CHUNK_SIZE = 20;
+        const totalChunks = Math.ceil(gazeLog.length / CHUNK_SIZE);
+        for (let c = 0; c < totalChunks; c++) {
+            const chunk = gazeLog.slice(c * CHUNK_SIZE, (c + 1) * CHUNK_SIZE);
+            updateStatus(`正在上传眼动数据 (第${c + 1}/${totalChunks}批，共${gazeLog.length}行)...`);
+            await syncWithBackend('gaze_food2', chunk);
+            // 每批之间等 4 秒，让 Google 有时间处理
+            await new Promise(r => setTimeout(r, 4000));
+        }
 
         updateStatus("✅ 所有数据同步成功！任务完成。感谢参与！");
     } catch (e) {
