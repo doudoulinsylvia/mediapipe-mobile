@@ -586,8 +586,9 @@ async function exportData() {
         const gazePromises = [];
         for (let c = 0; c < totalChunks; c++) {
             const chunk = gazeLog.slice(c * CHUNK_SIZE, (c + 1) * CHUNK_SIZE);
-            // 这里我们异步发出，不阻塞
+            // 虽然是异步跨域，但也稍微错开发送时间（1.5秒间隔），防止同时上百个并发连接被浏览器或Google掐断
             syncWithBackendFetch('gaze_food2', chunk).catch(e => console.error(e));
+            await new Promise(r => setTimeout(r, 1500));
         }
 
         updateStatus("✅ 数据正在后台发送！任务完成。感谢参与！");
