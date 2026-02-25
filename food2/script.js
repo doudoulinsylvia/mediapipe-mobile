@@ -597,20 +597,44 @@ async function exportData() {
     }
 }
 
-// 极速 Fetch 上传 (替代原有的隐藏 iframe)
-async function syncWithBackendFetch(type, payload) {
-    if (BACKEND_URL === "YOUR_GOOGLE_SCRIPT_URL_HERE") return;
+// 极速静默上传 (替代 Fetch，绕过复杂的跨域拦截)
+function syncWithBackendFetch(type, payload) {
+    if (BACKEND_URL === "YOUR_GOOGLE_SCRIPT_URL_HERE") return Promise.resolve();
 
-    // 使用纯文本 fetch 避免 CORS 复杂预检
-    return fetch(BACKEND_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'data=' + encodeURIComponent(JSON.stringify({
+    return new Promise((resolve) => {
+        const iframeName = 'fast_gs_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+        const iframe = document.createElement('iframe');
+        iframe.name = iframeName;
+        iframe.style.display = 'none';
+        document.body.appendChild(iframe);
+
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = BACKEND_URL;
+        form.target = iframeName;
+
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'data';
+        input.value = JSON.stringify({
             type: type,
             subject_id: subjectInfo.id,
             payload: payload
-        }))
-    }).catch(e => console.warn("Fetch failed, probably CORS but Google Sheets received it:", e));
+        });
+
+        form.appendChild(input);
+        document.body.appendChild(form);
+        form.submit();
+
+        // 立马返回，不阻塞主流程
+        resolve();
+
+        // 20秒后自动回收占用的 DOM 内存
+        setTimeout(() => {
+            try { document.body.removeChild(form); } catch (e) { }
+            try { document.body.removeChild(iframe); } catch (e) { }
+        }, 20000);
+    });
 }
 
 function syncWithBackend(type, payload) {
