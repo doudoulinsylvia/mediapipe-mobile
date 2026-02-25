@@ -556,23 +556,23 @@ async function exportData() {
         await new Promise(r => setTimeout(r, 1000));
         downloadCSV(gazeCSV, `gaze_food2_${subjectInfo.id}.csv`);
 
-        // 2. 同步到 Google Sheets（依次发送，等待足够时间）
+        // 2. 同步到 Google Sheets
         updateStatus("正在上传行为数据到 Google Sheets...");
         await syncWithBackend('behavior_food2', behaviorLog);
+        // 立刻再发一次作为保险（行为数据很小，重复写入不影响分析）
+        await syncWithBackend('behavior_food2', behaviorLog);
 
-        // 等待 5 秒确保行为数据表单已被 Google 接收处理
-        updateStatus("行为数据已提交，等待确认...");
-        await new Promise(r => setTimeout(r, 5000));
+        updateStatus("行为数据已提交，开始上传眼动数据...");
+        await new Promise(r => setTimeout(r, 2000));
 
-        // 分块上传眼动数据（每块 20 行，避免表单数据过大导致发送失败）
-        const CHUNK_SIZE = 20;
+        // 分块上传眼动数据（每块 50 行）
+        const CHUNK_SIZE = 50;
         const totalChunks = Math.ceil(gazeLog.length / CHUNK_SIZE);
         for (let c = 0; c < totalChunks; c++) {
             const chunk = gazeLog.slice(c * CHUNK_SIZE, (c + 1) * CHUNK_SIZE);
-            updateStatus(`正在上传眼动数据 (第${c + 1}/${totalChunks}批，共${gazeLog.length}行)...`);
+            updateStatus(`正在上传眼动数据 (第${c + 1}/${totalChunks}批)...`);
             await syncWithBackend('gaze_food2', chunk);
-            // 每批之间等 4 秒，让 Google 有时间处理
-            await new Promise(r => setTimeout(r, 4000));
+            await new Promise(r => setTimeout(r, 2000));
         }
 
         updateStatus("✅ 所有数据同步成功！任务完成。感谢参与！");
@@ -618,12 +618,12 @@ function syncWithBackend(type, payload) {
 
             console.log(`✅ ${type} data submitted to Google Sheets`);
 
-            // 等待几秒后清理 DOM
+            // 等待足够时间让请求完成后再清理 DOM
             setTimeout(() => {
-                document.body.removeChild(form);
-                document.body.removeChild(iframe);
+                try { document.body.removeChild(form); } catch (x) { }
+                try { document.body.removeChild(iframe); } catch (x) { }
                 resolve();
-            }, 3000);
+            }, 8000);
         } catch (e) {
             console.error(`❌ Submit error for ${type}:`, e);
             reject(new Error(`无法提交到 Google Sheets: ${e.message}`));
