@@ -39,13 +39,19 @@ function doPost(e) {
             sheet.appendRow(headers);
         }
 
-        // 写入数据行
+        // 写入数据行 (使用批量写入，避免超时)
         var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+        var allRows = [];
         for (var i = 0; i < payload.length; i++) {
             var row = headers.map(function (h) {
                 return payload[i][h] !== undefined ? payload[i][h] : '';
             });
-            sheet.appendRow(row);
+            allRows.push(row);
+        }
+        // 一次性写入所有行，速度比 appendRow 快 100 倍
+        if (allRows.length > 0) {
+            var lastRow = sheet.getLastRow();
+            sheet.getRange(lastRow + 1, 1, allRows.length, headers.length).setValues(allRows);
         }
 
         return ContentService.createTextOutput(
