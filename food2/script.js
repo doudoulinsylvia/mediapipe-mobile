@@ -540,6 +540,7 @@ function loop() {
 
 async function exportData() {
     console.log("🏁 Experiment finished. Starting export...");
+    console.log(`📊 behaviorLog: ${behaviorLog.length} rows, gazeLog: ${gazeLog.length} rows`);
     try {
         updateStatus("实验完成，正在准备行为数据...");
         const behaviorCSV = jsonToCSV(behaviorLog);
@@ -548,23 +549,27 @@ async function exportData() {
         await new Promise(r => setTimeout(r, 200)); // 给 UI 渲染时间
 
         const gazeCSV = jsonToCSV(gazeLog);
-        updateStatus("所有数据准备就绪，正在启动下载...");
+        updateStatus(`所有数据准备就绪 (行为: ${behaviorLog.length}行, 眼动: ${gazeLog.length}行)，正在启动下载...`);
 
         // 1. 本地下载备份
-        downloadCSV(behaviorCSV, `behavior_${subjectInfo.id}.csv`);
+        downloadCSV(behaviorCSV, `behavior_food2_${subjectInfo.id}.csv`);
         await new Promise(r => setTimeout(r, 1000));
-        downloadCSV(gazeCSV, `gaze_${subjectInfo.id}.csv`);
+        downloadCSV(gazeCSV, `gaze_food2_${subjectInfo.id}.csv`);
 
         // 2. 同步到 Google Sheets（依次发送，等待足够时间）
         updateStatus("正在上传行为数据到 Google Sheets...");
         await syncWithBackend('behavior_food2', behaviorLog);
 
-        // 等待 5 秒确保行为数据表单已被 Google 接收处理
+        // 等待 8 秒确保行为数据表单已被 Google 接收处理
         updateStatus("行为数据已提交，等待确认...");
-        await new Promise(r => setTimeout(r, 5000));
+        await new Promise(r => setTimeout(r, 8000));
 
-        updateStatus("正在上传眼动数据到 Google Sheets (数据量较大，请耐心等待)...");
+        updateStatus(`正在上传眼动数据到 Google Sheets (${gazeLog.length}行，数据量较大，请耐心等待)...`);
         await syncWithBackend('gaze_food2', gazeLog);
+
+        // 等待 8 秒确保眼动数据也被处理
+        updateStatus("眼动数据已提交，等待确认...");
+        await new Promise(r => setTimeout(r, 8000));
 
         updateStatus("✅ 所有数据同步成功！任务完成。感谢参与！");
     } catch (e) {
