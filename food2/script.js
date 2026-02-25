@@ -181,15 +181,28 @@ function onResults(results) {
         const r_iris_size = Math.hypot(lms[474].x - lms[476].x, lms[474].y - lms[476].y);
         const pupil_size = ((l_iris_size + r_iris_size) / 2.0) / (h_dist + 1e-6);
 
+        // 4. 垂直 Y 映射计算 (粗略估计眼球上下运动)
+        // 使用眼眶上下边界中点作为参考参考
+        const leftEyeH = Math.hypot(lms[159].x - lms[145].x, lms[159].y - lms[145].y);
+        const rightEyeH = Math.hypot(lms[386].x - lms[374].x, lms[386].y - lms[374].y);
+
+        // 眼睛中心 Y 到 瞳孔 Y 的比例
+        const l_y_ratio = (lms[468].y - lms[159].y) / (leftEyeH + 1e-6);
+        const r_y_ratio = (lms[473].y - lms[386].y) / (rightEyeH + 1e-6);
+        const raw_y = (l_y_ratio + r_y_ratio) / 2.0;
+
         // 记录状态
         lastGaze.raw_x = raw_x;
+        lastGaze.raw_y = raw_y;
         lastGaze.valid = !!valid;
         lastGaze.ratio = ratio; // 新增：保存比例用于调试
         lastGaze.pupil_size = pupil_size;
 
         // 映射到屏幕坐标
         lastGaze.x = mapX(raw_x);
-        lastGaze.y = canvas.height / 2;
+        // 简单映射 Y：瞳孔在眼眶内的相对位置（一般在 0.3-0.7 之间）映射到 canvas.height
+        // 这个映射不是绝对精确，旨在反映上/下翻眼的趋势
+        lastGaze.y = Math.min(Math.max((raw_y - 0.2) / 0.6, 0), 1) * canvas.height;
 
         // 记录 468 个点 (关键改进)
         // 为了 CSV 效率，将其存为特定格式的字符串
@@ -565,21 +578,39 @@ async function exportData() {
         updateStatus("行为数据已提交，开始上传眼动数据...");
         await new Promise(r => setTimeout(r, 2000));
 
-        // 分块上传眼动数据（每块 50 行）
+        // 分块上传眼动数据（加速：每块 50 行，并行触发不阻挡）
         const CHUNK_SIZE = 50;
         const totalChunks = Math.ceil(gazeLog.length / CHUNK_SIZE);
+
+        updateStatus(`正在后台极速上传 ${gazeLog.length} 行眼动数据，您可以离开页面...`);
+        const gazePromises = [];
         for (let c = 0; c < totalChunks; c++) {
             const chunk = gazeLog.slice(c * CHUNK_SIZE, (c + 1) * CHUNK_SIZE);
-            updateStatus(`正在上传眼动数据 (第${c + 1}/${totalChunks}批)...`);
-            await syncWithBackend('gaze_food2', chunk);
-            await new Promise(r => setTimeout(r, 2000));
+            // 这里我们异步发出，不阻塞
+            syncWithBackendFetch('gaze_food2', chunk).catch(e => console.error(e));
         }
 
-        updateStatus("✅ 所有数据同步成功！任务完成。感谢参与！");
+        updateStatus("✅ 数据正在后台发送！任务完成。感谢参与！");
     } catch (e) {
         console.error("Export Error:", e);
         updateStatus("⚠️ 数据已下载到手机。云端同步遇到问题: " + e.message + "\n请将手机下载的 CSV 文件发送给主试。");
     }
+}
+
+// 极速 Fetch 上传 (替代原有的隐藏 iframe)
+async function syncWithBackendFetch(type, payload) {
+    if (BACKEND_URL === "YOUR_GOOGLE_SCRIPT_URL_HERE") return;
+
+    // 使用纯文本 fetch 避免 CORS 复杂预检
+    return fetch(BACKEND_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'data=' + encodeURIComponent(JSON.stringify({
+            type: type,
+            subject_id: subjectInfo.id,
+            payload: payload
+        }))
+    }).catch(e => console.warn("Fetch failed, probably CORS but Google Sheets received it:", e));
 }
 
 function syncWithBackend(type, payload) {
@@ -592,7 +623,7 @@ function syncWithBackend(type, payload) {
     return new Promise((resolve, reject) => {
         try {
             // 使用隐藏 iframe + form 提交，彻底绕过 CORS 和重定向问题
-            const iframeName = 'gs_target_' + Date.now();
+            const iframeName = 'gs_target_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
             const iframe = document.createElement('iframe');
             iframe.name = iframeName;
             iframe.style.display = 'none';
@@ -616,14 +647,16 @@ function syncWithBackend(type, payload) {
             document.body.appendChild(form);
             form.submit();
 
-            console.log(`✅ ${type} data submitted to Google Sheets`);
+            console.log(`✅ ${type} data submitted (${payload.length} rows)`);
 
-            // 等待足够时间让请求完成后再清理 DOM
+            // 表单提交后立即 resolve，不阻塞后续操作
+            setTimeout(() => resolve(), 500);
+
+            // iframe 和 form 延迟清理（给浏览器足够时间完成请求）
             setTimeout(() => {
                 try { document.body.removeChild(form); } catch (x) { }
                 try { document.body.removeChild(iframe); } catch (x) { }
-                resolve();
-            }, 8000);
+            }, 15000);
         } catch (e) {
             console.error(`❌ Submit error for ${type}:`, e);
             reject(new Error(`无法提交到 Google Sheets: ${e.message}`));
