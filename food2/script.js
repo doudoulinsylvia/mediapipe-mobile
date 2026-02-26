@@ -17,11 +17,14 @@ const SELECT_COLOR = '#ff0000';
 
 let loadedImages = {}; // 存储预加载的图片对象
 
-// 实验状态
 const State = {
     LOADING: 'LOADING',
+    SUBJECT_INFO: 'SUBJECT_INFO',
     REGISTRATION: 'REGISTRATION',
     CALIBRATION: 'CALIBRATION',
+    RATING_FIXATION: 'RATING_FIXATION',
+    RATING_DECISION: 'RATING_DECISION',
+    RATING_FEEDBACK: 'RATING_FEEDBACK',
     TRIAL_FIXATION: 'TRIAL_FIXATION',
     TRIAL_DECISION: 'TRIAL_DECISION',
     TRIAL_FEEDBACK: 'TRIAL_FEEDBACK',
@@ -35,11 +38,17 @@ const BACKEND_URL = "https://script.google.com/macros/s/AKfycbzjb2x1vhDStjDxu3k7
 
 let currentState = State.LOADING;
 let subjectInfo = {};
+
+let ratingImages = [];
+let currentRatingIndex = 0;
+let ratingLog = [];
+
 let trials = [];
 let currentTrialIndex = 0;
 let behaviorLog = [];
 let gazeLog = [];
 let lastGaze = { x: 0, y: 0, valid: false, landmarks: null, mesh: null, pupil_size: 0, raw_x: 0.5 };
+let trialStartTime = 0;
 
 // MediaPipe 状态
 let faceMesh;
@@ -89,8 +98,8 @@ function preloadImages(imageIds) {
 async function initMediaPipe() {
     updateStatus("正在载入实验环境与图片资源，请稍候...");
 
-    // 随机抽选本次实验用到的图片，避免加载所有200张
-    const reqCount = TRIAL_LIMIT * IMAGES_PER_TRIAL;
+    // 根据需求，评分阶段只选取 3 张图片
+    const reqCount = 3;
     const allIds = Array.from({ length: TOTAL_IMITS_COUNT }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
     const selectedIds = allIds.slice(0, reqCount);
 
@@ -102,14 +111,8 @@ async function initMediaPipe() {
 
     try {
         await preloadImages(selectedIds);
-
-        // 生成 Trial 数据
-        trials = [];
-        for (let i = 0; i < TRIAL_LIMIT; i++) {
-            trials.push({
-                images: selectedIds.slice(i * 2, i * 2 + 2)
-            });
-        }
+        ratingImages = selectedIds;
+        trials = []; // 将在评分阶段结束后自动生成
 
         faceMesh = new FaceMesh({
             locateFile: (file) => {
@@ -218,7 +221,8 @@ function onResults(results) {
             rightOuter: { x: lms[263].x.toFixed(4), y: lms[263].y.toFixed(4) }
         };
 
-        if (currentState === State.TRIAL_DECISION || currentState === State.TRIAL_FIXATION || currentState === State.TRIAL_FEEDBACK) {
+        if (currentState === State.TRIAL_DECISION || currentState === State.TRIAL_FIXATION || currentState === State.TRIAL_FEEDBACK ||
+            currentState === State.RATING_DECISION || currentState === State.RATING_FIXATION || currentState === State.RATING_FEEDBACK) {
             recordGazeFrame();
         }
     } else {
@@ -344,36 +348,113 @@ function drawDecision(trial, selectionIndex = -1) {
     }
 }
 
+function getRatingBtnCoords() {
+    const margin = 20;
+    const topMargin = 80;
+    const size = Math.min(canvas.width * 0.8, (canvas.height - 300) * 0.8);
+
+    // 适配屏幕宽度，每排 5 个按钮
+    const btnW = Math.min(60, (canvas.width - 60) / 5);
+    const btnH = btnW;
+    const spacing = 10;
+
+    const startX = (canvas.width - (5 * btnW + 4 * spacing)) / 2;
+    const startY = topMargin + size + 40;
+    const rects = [];
+
+    for (let i = 1; i <= 10; i++) {
+        let r = Math.floor((i - 1) / 5);
+        let c = (i - 1) % 5;
+        rects.push({
+            x: startX + c * (btnW + spacing),
+            y: startY + r * (btnH + spacing),
+            w: btnW,
+            h: btnH,
+            val: i
+        });
+    }
+    return rects;
+}
+
+function drawRating(id, selectedRating = -1) {
+    const img = loadedImages[id];
+    const topMargin = 80;
+
+    const size = Math.min(canvas.width * 0.8, (canvas.height - 300) * 0.8);
+    const offsetX = (canvas.width - size) / 2;
+    const offsetY = topMargin;
+
+    if (img) {
+        drawImageCover(ctx, img, offsetX, offsetY, size, size);
+        ctx.strokeRect(offsetX, offsetY, size, size);
+    } else {
+        ctx.fillStyle = '#eee';
+        ctx.fillRect(offsetX, offsetY, size, size);
+        drawText(`${id}.jpg`, offsetX + size / 2, offsetY + size / 2, 20);
+    }
+
+    drawText("请对该食物从 1 (不喜欢) 到 10 (极其喜欢) 进行打分", canvas.width / 2, offsetY + size + 20, 16);
+
+    const rects = getRatingBtnCoords();
+    for (let rect of rects) {
+        ctx.fillStyle = selectedRating === rect.val ? SELECT_COLOR : '#eee';
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+        ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+
+        ctx.fillStyle = selectedRating === rect.val ? '#fff' : TEXT_COLOR;
+        ctx.font = `20px Inter, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(rect.val.toString(), rect.x + rect.w / 2, rect.y + rect.h / 2);
+    }
+}
+
 // 触摸处理 (Decision 阶段)
 canvas.addEventListener('touchstart', (e) => {
-    if (currentState !== State.TRIAL_DECISION) return;
-
     const touchX = e.touches[0].clientX;
     const touchY = e.touches[0].clientY;
 
-    const margin = 30, spacing = 30, topMargin = 80;
-    const availableWidth = canvas.width - margin * 2;
-    const availableHeight = canvas.height - topMargin - margin;
-    const imgW = Math.min(availableWidth * 0.8, 400);
-    const imgH = (availableHeight - spacing) / 2;
-    const size = Math.min(imgW, imgH);
-    const offsetX = (canvas.width - size) / 2;
-    const totalH = size * 2 + spacing;
-    const startY = topMargin + (availableHeight - totalH) / 2;
-
-    let tappedIndex = -1;
-
-    // 上方: 0, 下方: 1
-    if (touchX >= offsetX && touchX <= offsetX + size &&
-        touchY >= startY && touchY <= startY + size) {
-        tappedIndex = 0;
-    } else if (touchX >= offsetX && touchX <= offsetX + size &&
-        touchY >= startY + size + spacing && touchY <= startY + size * 2 + spacing) {
-        tappedIndex = 1;
+    if (currentState === State.RATING_DECISION) {
+        const rects = getRatingBtnCoords();
+        let selected = -1;
+        for (let rect of rects) {
+            if (touchX >= rect.x && touchX <= rect.x + rect.w &&
+                touchY >= rect.y && touchY <= rect.y + rect.h) {
+                selected = rect.val;
+                break;
+            }
+        }
+        if (selected !== -1) {
+            handleRating(selected);
+        }
+        return;
     }
 
-    if (tappedIndex !== -1) {
-        handleDecision(tappedIndex);
+    if (currentState === State.TRIAL_DECISION) {
+        const margin = 30, spacing = 30, topMargin = 80;
+        const availableWidth = canvas.width - margin * 2;
+        const availableHeight = canvas.height - topMargin - margin;
+        const imgW = Math.min(availableWidth * 0.8, 400);
+        const imgH = (availableHeight - spacing) / 2;
+        const size = Math.min(imgW, imgH);
+        const offsetX = (canvas.width - size) / 2;
+        const totalH = size * 2 + spacing;
+        const startY = topMargin + (availableHeight - totalH) / 2;
+
+        let tappedIndex = -1;
+
+        // 上方: 0, 下方: 1
+        if (touchX >= offsetX && touchX <= offsetX + size &&
+            touchY >= startY && touchY <= startY + size) {
+            tappedIndex = 0;
+        } else if (touchX >= offsetX && touchX <= offsetX + size &&
+            touchY >= startY + size + spacing && touchY <= startY + size * 2 + spacing) {
+            tappedIndex = 1;
+        }
+
+        if (tappedIndex !== -1) {
+            handleDecision(tappedIndex);
+        }
     }
 });
 
@@ -406,11 +487,103 @@ function finishCalibration() {
     calibLimits.x_min = Math.min(...res) - (res[0] - Math.min(...res)) * 0.4;
     calibLimits.x_max = Math.max(...res) + (Math.max(...res) - res[0]) * 0.4;
 
-    currentState = State.TRIAL_FIXATION;
+    currentState = State.RATING_FIXATION;
+    currentRatingIndex = 0;
+    startRatingTrial();
+}
+
+function startRatingTrial() {
+    trialStartTime = performance.now();
+    currentState = State.RATING_FIXATION;
+    // 类似 psychoPy 逻辑，先出注视点
+    setTimeout(() => {
+        currentState = State.RATING_DECISION;
+        trialStartTime = performance.now(); // 记录正式做决定的时间
+    }, 800 + Math.random() * 200);
+}
+
+function handleRating(rating) {
+    const id = ratingImages[currentRatingIndex];
+    const rt = performance.now() - trialStartTime;
+
+    ratingLog.push({
+        subject_id: subjectInfo.id,
+        image_id: id,
+        rating: rating,
+        rt: rt.toFixed(2)
+    });
+
+    currentState = State.RATING_FEEDBACK;
+    // 重绘时会显示被选中的按钮颜色，停顿 0.5s 后进入下一张
+    setTimeout(() => {
+        nextRatingTrial();
+    }, 500);
+}
+
+function nextRatingTrial() {
+    currentRatingIndex++;
+    if (currentRatingIndex >= ratingImages.length) {
+        // 评分阶段结束，根据主观评分生成二元选择组合
+        generateCombinations();
+    } else {
+        startRatingTrial();
+    }
+}
+
+function generateCombinations() {
+    // 按评分分组归类图片
+    const ratingGroups = {};
+    for (let item of ratingLog) {
+        if (!ratingGroups[item.rating]) ratingGroups[item.rating] = [];
+        ratingGroups[item.rating].push(item.image_id);
+    }
+
+    // 找出所有填过的不同评分分数
+    const uniqueRatings = Object.keys(ratingGroups).map(Number);
+
+    // 如果所有的图都被打了完全一样的分，无法产生差异组合
+    if (uniqueRatings.length < 2) {
+        alert("由于您的评分全部相同，无法进入对比阶段，数据将直接上传。");
+        currentState = State.FINISHED;
+        exportData();
+        return;
+    }
+
+    // 生成不重复的所有两两排列组合，如打分了 3,5,8 -> (3,5) (3,8) (5,3) (5,8) (8,3) (8,5)
+    const perms = [];
+    for (let i = 0; i < uniqueRatings.length; i++) {
+        for (let j = 0; j < uniqueRatings.length; j++) {
+            if (i !== j) {
+                perms.push([uniqueRatings[i], uniqueRatings[j]]);
+            }
+        }
+    }
+
+    // 随机打乱配对顺序
+    perms.sort(() => Math.random() - 0.5);
+
+    trials = [];
+    for (let p of perms) {
+        const top_rating = p[0];
+        const bottom_rating = p[1];
+
+        // 从对应分数池中随机抽取一张图
+        const top_images = ratingGroups[top_rating];
+        const bottom_images = ratingGroups[bottom_rating];
+        const top_img = top_images[Math.floor(Math.random() * top_images.length)];
+        const bottom_img = bottom_images[Math.floor(Math.random() * bottom_images.length)];
+
+        trials.push({
+            images: [top_img, bottom_img],
+            top_rating: top_rating,
+            bottom_rating: bottom_rating
+        });
+    }
+
+    currentTrialIndex = 0;
     startTrial();
 }
 
-let trialStartTime = 0;
 function startTrial() {
     const trial = trials[currentTrialIndex];
     trial.startTime = performance.now();
@@ -435,7 +608,9 @@ function handleDecision(selectionIndex) {
         behaviorLog.push({
             trial: currentTrialIndex + 1,
             top_img: trial.images[0],
+            top_rating: trial.top_rating,
             bottom_img: trial.images[1],
+            bottom_rating: trial.bottom_rating,
             chosen_position: selectionIndex === 0 ? 'top' : 'bottom', // 上 or 下
             chosen_img_id: trial.chosenImageId, // 实际图片的数字编号
             rt: trial.rt.toFixed(2),
@@ -516,8 +691,19 @@ function loop() {
             }
             break;
 
+        case State.RATING_FIXATION:
         case State.TRIAL_FIXATION:
             drawFixation();
+            break;
+
+        case State.RATING_DECISION:
+            drawRating(ratingImages[currentRatingIndex], -1);
+            break;
+
+        case State.RATING_FEEDBACK:
+            // 反馈阶段通过从 ratingLog 取出当前分数渲染颜色
+            const currentRec = ratingLog[ratingLog.length - 1];
+            drawRating(ratingImages[currentRatingIndex], currentRec.rating);
             break;
 
         case State.TRIAL_DECISION:
@@ -530,7 +716,7 @@ function loop() {
 
         case State.BREAK:
             drawText("休息一下", canvas.width / 2, canvas.height / 2 - 50, 40);
-            drawText("准备好后点击屏幕继续校准", canvas.width / 2, canvas.height / 2 + 50, 20);
+            drawText("准备好后点击屏幕继续", canvas.width / 2, canvas.height / 2 + 50, 20);
             break;
 
         case State.FINISHED:
@@ -562,15 +748,22 @@ async function exportData() {
         await new Promise(r => setTimeout(r, 200)); // 给 UI 渲染时间
 
         const gazeCSV = jsonToCSV(gazeLog);
-        updateStatus(`所有数据准备就绪 (行为: ${behaviorLog.length}行, 眼动: ${gazeLog.length}行)，正在启动下载...`);
+        updateStatus("所有数据准备就绪，正在启动下载...");
 
         // 1. 本地下载备份
+        const ratingCSV = jsonToCSV(ratingLog);
+        downloadCSV(ratingCSV, `rating_food2_${subjectInfo.id}.csv`);
+        await new Promise(r => setTimeout(r, 1000));
         downloadCSV(behaviorCSV, `behavior_food2_${subjectInfo.id}.csv`);
         await new Promise(r => setTimeout(r, 1000));
         downloadCSV(gazeCSV, `gaze_food2_${subjectInfo.id}.csv`);
 
         // 2. 同步到 Google Sheets
-        updateStatus("正在上传行为数据到 Google Sheets...");
+        updateStatus("正在上传 评分数据(第一阶段)...");
+        await syncWithBackend('rating_food2', ratingLog);
+        await new Promise(r => setTimeout(r, 1000));
+
+        updateStatus("正在上传 行为决策数据(第二阶段)...");
         await syncWithBackend('behavior_food2', behaviorLog);
         // 立刻再发一次作为保险（行为数据很小，重复写入不影响分析）
         await syncWithBackend('behavior_food2', behaviorLog);
