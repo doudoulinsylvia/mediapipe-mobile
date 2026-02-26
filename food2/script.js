@@ -44,6 +44,8 @@ let ratingImages = [];
 let currentRatingIndex = 0;
 let ratingLog = [];
 
+let lastTouchFeedback = null; // 用于绘制点击反馈圆圈
+
 let trials = [];
 let currentTrialIndex = 0;
 let behaviorLog = [];
@@ -353,13 +355,13 @@ function drawDecision(trial, selectionIndex = -1) {
 function getRatingBtnCoords() {
     const topMargin = 80;
     const size = Math.min(canvas.width * 0.8, (canvas.height - 300) * 0.8);
-    const startY = topMargin + size + 60; // 往下挪一点防止文字遮挡
+    const startY = topMargin + size + 70;
 
-    // 适配屏幕宽度，每排 5 个按钮，按钮加大
     const maxCols = 5;
-    const spacing = 15;
+    const spacing = 12;
+    // 自动计算按钮宽度，确保不超出屏幕
     const btnW = (canvas.width - spacing * (maxCols + 1)) / maxCols;
-    const btnH = 60; // 固定较大高度，提升触摸手感
+    const btnH = 65; // 稍微加高一点
 
     const rects = [];
     for (let i = 1; i <= 10; i++) {
@@ -410,15 +412,23 @@ function drawRating(id, selectedRating = -1) {
 }
 
 // 统一的高鲁棒性触摸/点击处理逻辑
-function handleScreenTap(touchX, touchY) {
+function handleScreenTap(clientX, clientY) {
+    // 关键修正：将屏幕物理坐标转换为 Canvas 内部坐标
+    const rect = canvas.getBoundingClientRect();
+    const touchX = (clientX - rect.left) * (canvas.width / rect.width);
+    const touchY = (clientY - rect.top) * (canvas.height / rect.height);
+
+    // 设置点击反馈点，显示一瞬间
+    lastTouchFeedback = { x: touchX, y: touchY, time: Date.now() };
+
     if (currentState === State.RATING_DECISION) {
-        const rects = getRatingBtnCoords();
+        const btnRects = getRatingBtnCoords();
         let selected = -1;
-        for (let rect of rects) {
-            // 热区向外膨胀扩大 15 像素，彻底解决“接触不良”
-            if (touchX >= rect.x - 15 && touchX <= rect.x + rect.w + 15 &&
-                touchY >= rect.y - 15 && touchY <= rect.y + rect.h + 15) {
-                selected = rect.val;
+        for (let btn of btnRects) {
+            // 严格像素判断，不再膨胀热区导致上下重叠，按钮本身已经足够大
+            if (touchX >= btn.x && touchX <= btn.x + btn.w &&
+                touchY >= btn.y && touchY <= btn.y + btn.h) {
+                selected = btn.val;
                 break;
             }
         }
@@ -437,17 +447,13 @@ function handleScreenTap(touchX, touchY) {
         const totalH = size * 2 + spacing;
         const startY = topMargin + (availableHeight - totalH) / 2;
 
-        let tappedIndex = -1;
-
         if (touchX >= offsetX && touchX <= offsetX + size &&
             touchY >= startY && touchY <= startY + size) {
-            tappedIndex = 0;
+            handleDecision(0);
         } else if (touchX >= offsetX && touchX <= offsetX + size &&
             touchY >= startY + size + spacing && touchY <= startY + size * 2 + spacing) {
-            tappedIndex = 1;
+            handleDecision(1);
         }
-
-        if (tappedIndex !== -1) handleDecision(tappedIndex);
         return;
     }
 
@@ -480,7 +486,7 @@ function handleScreenTap(touchX, touchY) {
     }
 }
 
-// 统一监听 pointerdown，兼容鼠标、各种触摸事件而且无延迟
+// 统一监听 pointerdown
 canvas.addEventListener('pointerdown', (e) => {
     handleScreenTap(e.clientX, e.clientY);
 });
@@ -618,6 +624,7 @@ function handleDecision(selectionIndex) {
             chosen_position: selectionIndex === 0 ? 'top' : 'bottom', // 上 or 下
             chosen_img_id: trial.chosenImageId, // 实际图片的数字编号
             rt: trial.rt.toFixed(2),
+            gaze_total_frames: gazeLog.length,
             ...subjectInfo
         });
 
@@ -755,17 +762,31 @@ function loop() {
         }
         requestAnimationFrame(loop);
     }
+
+    // 绘制点击反馈（调试用：一个小蓝圈）
+    if (lastTouchFeedback && Date.now() - lastTouchFeedback.time < 300) {
+        ctx.strokeStyle = 'blue';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(lastTouchFeedback.x, lastTouchFeedback.y, 25, 0, Math.PI * 2);
+        ctx.stroke();
+    }
 }
 
 async function exportData() {
     console.log("🏁 Experiment finished. Starting export...");
-    console.log(`📊 behaviorLog: ${behaviorLog.length} rows, gazeLog: ${gazeLog.length} rows`);
+    alert(`全流程结束！正在同步数据。\n本次共录得：\n评分数据 ${ratingLog.length} 条\n决策行为 ${behaviorLog.length} 条\n眼动原始数据 ${gazeLog.length} 条`);
+
     try {
         updateStatus("实验完成，正在准备行为数据...");
         const behaviorCSV = jsonToCSV(behaviorLog);
 
-        updateStatus("行为数据就绪，正在转换眼动网格 (468点，请稍候)...");
-        await new Promise(r => setTimeout(r, 200)); // 给 UI 渲染时间
+        updateStatus("行为数据就绪，正在转换眼动数据，请稍候...");
+        await new Promise(r => setTimeout(r, 600)); // 留点时间显示 Alert
+
+        if (gazeLog.length === 0) {
+            updateStatus("⚠️ 警告：眼动数据为空，可能是因为摄像头全程未捕捉到面部。");
+        }
 
         const gazeCSV = jsonToCSV(gazeLog);
         updateStatus("所有数据准备就绪，正在启动下载...");
