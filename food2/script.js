@@ -25,6 +25,7 @@ const State = {
     RATING_FIXATION: 'RATING_FIXATION',
     RATING_DECISION: 'RATING_DECISION',
     RATING_FEEDBACK: 'RATING_FEEDBACK',
+    PHASE1_END: 'PHASE1_END',
     TRIAL_FIXATION: 'TRIAL_FIXATION',
     TRIAL_DECISION: 'TRIAL_DECISION',
     TRIAL_FEEDBACK: 'TRIAL_FEEDBACK',
@@ -349,24 +350,22 @@ function drawDecision(trial, selectionIndex = -1) {
 }
 
 function getRatingBtnCoords() {
-    const margin = 20;
     const topMargin = 80;
     const size = Math.min(canvas.width * 0.8, (canvas.height - 300) * 0.8);
+    const startY = topMargin + size + 60; // 往下挪一点防止文字遮挡
 
-    // 适配屏幕宽度，每排 5 个按钮
-    const btnW = Math.min(60, (canvas.width - 60) / 5);
-    const btnH = btnW;
-    const spacing = 10;
+    // 适配屏幕宽度，每排 5 个按钮，按钮加大
+    const maxCols = 5;
+    const spacing = 15;
+    const btnW = (canvas.width - spacing * (maxCols + 1)) / maxCols;
+    const btnH = 60; // 固定较大高度，提升触摸手感
 
-    const startX = (canvas.width - (5 * btnW + 4 * spacing)) / 2;
-    const startY = topMargin + size + 40;
     const rects = [];
-
     for (let i = 1; i <= 10; i++) {
-        let r = Math.floor((i - 1) / 5);
-        let c = (i - 1) % 5;
+        let r = Math.floor((i - 1) / maxCols);
+        let c = (i - 1) % maxCols;
         rects.push({
-            x: startX + c * (btnW + spacing),
+            x: spacing + c * (btnW + spacing),
             y: startY + r * (btnH + spacing),
             w: btnW,
             h: btnH,
@@ -409,24 +408,20 @@ function drawRating(id, selectedRating = -1) {
     }
 }
 
-// 触摸处理 (Decision 阶段)
-canvas.addEventListener('touchstart', (e) => {
-    const touchX = e.touches[0].clientX;
-    const touchY = e.touches[0].clientY;
-
+// 统一的高鲁棒性触摸/点击处理逻辑
+function handleScreenTap(touchX, touchY) {
     if (currentState === State.RATING_DECISION) {
         const rects = getRatingBtnCoords();
         let selected = -1;
         for (let rect of rects) {
-            if (touchX >= rect.x && touchX <= rect.x + rect.w &&
-                touchY >= rect.y && touchY <= rect.y + rect.h) {
+            // 热区向外膨胀扩大 15 像素，彻底解决“接触不良”
+            if (touchX >= rect.x - 15 && touchX <= rect.x + rect.w + 15 &&
+                touchY >= rect.y - 15 && touchY <= rect.y + rect.h + 15) {
                 selected = rect.val;
                 break;
             }
         }
-        if (selected !== -1) {
-            handleRating(selected);
-        }
+        if (selected !== -1) handleRating(selected);
         return;
     }
 
@@ -443,7 +438,6 @@ canvas.addEventListener('touchstart', (e) => {
 
         let tappedIndex = -1;
 
-        // 上方: 0, 下方: 1
         if (touchX >= offsetX && touchX <= offsetX + size &&
             touchY >= startY && touchY <= startY + size) {
             tappedIndex = 0;
@@ -452,14 +446,15 @@ canvas.addEventListener('touchstart', (e) => {
             tappedIndex = 1;
         }
 
-        if (tappedIndex !== -1) {
-            handleDecision(tappedIndex);
-        }
+        if (tappedIndex !== -1) handleDecision(tappedIndex);
+        return;
     }
-});
 
-// 处理按钮点击 (Calibration 阶段)
-canvas.addEventListener('pointerdown', (e) => {
+    if (currentState === State.PHASE1_END) {
+        generateCombinations();
+        return;
+    }
+
     if (currentState === State.CALIBRATION) {
         if (lastGaze.valid) {
             calibData.push(lastGaze.raw_x);
@@ -470,15 +465,23 @@ canvas.addEventListener('pointerdown', (e) => {
             }
         } else {
             updateStatus("未检测到面部，请正对手机后再点击");
-            // 简单震动提示（如果设备支持）
             if (navigator.vibrate) navigator.vibrate(50);
         }
-    } else if (currentState === State.BREAK) {
+        return;
+    }
+
+    if (currentState === State.BREAK) {
         currentCalibIndex = 0;
         calibData = [];
         currentState = State.CALIBRATION;
         updateStatus("休息结束，开始校准");
+        return;
     }
+}
+
+// 统一监听 pointerdown，兼容鼠标、各种触摸事件而且无延迟
+canvas.addEventListener('pointerdown', (e) => {
+    handleScreenTap(e.clientX, e.clientY);
 });
 
 function finishCalibration() {
@@ -523,8 +526,8 @@ function handleRating(rating) {
 function nextRatingTrial() {
     currentRatingIndex++;
     if (currentRatingIndex >= ratingImages.length) {
-        // 评分阶段结束，根据主观评分生成二元选择组合
-        generateCombinations();
+        // 第一阶段结束，进入过渡提示状态
+        currentState = State.PHASE1_END;
     } else {
         startRatingTrial();
     }
@@ -704,6 +707,17 @@ function loop() {
             // 反馈阶段通过从 ratingLog 取出当前分数渲染颜色
             const currentRec = ratingLog[ratingLog.length - 1];
             drawRating(ratingImages[currentRatingIndex], currentRec.rating);
+            break;
+
+        case State.PHASE1_END:
+            drawText("👏", canvas.width / 2, canvas.height / 2 - 120, 60);
+            drawText("第一阶段（食物打分）已结束", canvas.width / 2, canvas.height / 2 - 30, 24, "#333");
+            drawText("即将进入 第二阶段：二元选择", canvas.width / 2, canvas.height / 2 + 15, 20, "#666");
+            drawText("请根据直觉，快速从上下图片中选出喜欢的", canvas.width / 2, canvas.height / 2 + 50, 16, "#666");
+
+            ctx.fillStyle = SELECT_COLOR;
+            ctx.fillRect(canvas.width / 2 - 100, canvas.height / 2 + 100, 200, 50);
+            drawText("点击以开始", canvas.width / 2, canvas.height / 2 + 125, 20, "#fff");
             break;
 
         case State.TRIAL_DECISION:
