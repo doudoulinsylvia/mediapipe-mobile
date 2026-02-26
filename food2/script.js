@@ -223,7 +223,8 @@ function onResults(results) {
         };
 
         if (currentState === State.TRIAL_DECISION || currentState === State.TRIAL_FIXATION || currentState === State.TRIAL_FEEDBACK ||
-            currentState === State.RATING_DECISION || currentState === State.RATING_FIXATION || currentState === State.RATING_FEEDBACK) {
+            currentState === State.RATING_DECISION || currentState === State.RATING_FIXATION || currentState === State.RATING_FEEDBACK ||
+            currentState === State.PHASE1_END) {
             recordGazeFrame();
         }
     } else {
@@ -637,11 +638,16 @@ function nextTrial() {
 }
 
 function recordGazeFrame() {
+    const isRatingPhase = currentState.startsWith('RATING');
+    const displayTrialNum = isRatingPhase
+        ? (currentRatingIndex + 1)
+        : (currentState === State.PHASE1_END ? 'transition' : (currentTrialIndex + 1));
+
     const frame = {
         subject_id: subjectInfo.id || '',
         subject_name: subjectInfo.name || '',
         timestamp: performance.now().toFixed(2),
-        trial: currentTrialIndex + 1,
+        trial: displayTrialNum,
         phase: currentState,
         x: lastGaze.x.toFixed(2),
         y: lastGaze.y.toFixed(2),
@@ -778,8 +784,6 @@ async function exportData() {
         await new Promise(r => setTimeout(r, 1000));
 
         updateStatus("正在上传 行为决策数据(第二阶段)...");
-        await syncWithBackend('behavior_food2', behaviorLog);
-        // 立刻再发一次作为保险（行为数据很小，重复写入不影响分析）
         await syncWithBackend('behavior_food2', behaviorLog);
 
         updateStatus("行为数据已提交，开始上传眼动数据...");
