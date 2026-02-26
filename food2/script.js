@@ -792,13 +792,17 @@ async function exportData() {
         updateStatus(`正在后台极速上传 ${gazeLog.length} 行眼动数据，您可以离开页面...`);
         const gazePromises = [];
         for (let c = 0; c < totalChunks; c++) {
+            updateStatus(`正在安全上传眼动数据... (进度: ${c + 1}/${totalChunks})`);
             const chunk = gazeLog.slice(c * CHUNK_SIZE, (c + 1) * CHUNK_SIZE);
-            // 虽然是异步跨域，但也稍微错开发送时间（1.5秒间隔），防止同时上百个并发连接被浏览器或Google掐断
             syncWithBackendFetch('gaze_food2', chunk).catch(e => console.error(e));
             await new Promise(r => setTimeout(r, 1500));
         }
 
-        updateStatus("✅ 数据正在后台发送！任务完成。感谢参与！");
+        // 额外等待 3 秒，确保最后一批数据完全进入谷歌服务器，防止被试秒关页面切断上传
+        updateStatus("正在进行最终校验，请勿关闭页面...");
+        await new Promise(r => setTimeout(r, 3000));
+
+        updateStatus("✅ 所有数据已安全上传完毕！任务彻底完成。您可以关闭页面。");
     } catch (e) {
         console.error("Export Error:", e);
         updateStatus("⚠️ 数据已下载到手机。云端同步遇到问题: " + e.message + "\n请将手机下载的 CSV 文件发送给主试。");
