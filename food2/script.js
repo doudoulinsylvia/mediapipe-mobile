@@ -792,70 +792,21 @@ function loop() {
 async function exportData() {
     console.log("🏁 Experiment finished. Starting export...");
 
-    // ==================== 第一步：先确保本地下载成功 ====================
+    // ==================== 第一步：云端上传（最可靠，优先执行） ====================
+    let cloudSuccess = false;
     try {
-        updateStatus("实验完成，正在准备数据下载...");
+        updateStatus("实验完成！正在上传数据到云端，请勿关闭页面...");
 
-        // 立即生成并下载评分数据（最重要）
-        const ratingCSV = jsonToCSV(ratingLog);
-        if (ratingCSV) {
-            downloadCSV(ratingCSV, `rating_food2_${subjectInfo.id}.csv`);
-            console.log(`✅ Rating CSV downloaded (${ratingLog.length} rows)`);
-        }
-        await new Promise(r => setTimeout(r, 800));
-
-        // 下载行为数据
-        const behaviorCSV = jsonToCSV(behaviorLog);
-        if (behaviorCSV) {
-            downloadCSV(behaviorCSV, `behavior_food2_${subjectInfo.id}.csv`);
-            console.log(`✅ Behavior CSV downloaded (${behaviorLog.length} rows)`);
-        }
-        await new Promise(r => setTimeout(r, 800));
-
-        // 分批生成眼动数据 CSV（防止大量数据卡死）
-        updateStatus("正在处理眼动数据，请勿关闭页面...");
-        if (gazeLog.length > 0) {
-            // 如果眼动数据量很大，分块生成 CSV
-            const GAZE_CSV_CHUNK = 5000;
-            if (gazeLog.length > GAZE_CSV_CHUNK) {
-                // 超大数据量：分多个文件下载
-                const totalParts = Math.ceil(gazeLog.length / GAZE_CSV_CHUNK);
-                for (let p = 0; p < totalParts; p++) {
-                    const partData = gazeLog.slice(p * GAZE_CSV_CHUNK, (p + 1) * GAZE_CSV_CHUNK);
-                    const partCSV = jsonToCSV(partData);
-                    downloadCSV(partCSV, `gaze_food2_${subjectInfo.id}_part${p + 1}.csv`);
-                    await new Promise(r => setTimeout(r, 800));
-                }
-                console.log(`✅ Gaze CSV downloaded in ${totalParts} parts (${gazeLog.length} rows total)`);
-            } else {
-                const gazeCSV = jsonToCSV(gazeLog);
-                downloadCSV(gazeCSV, `gaze_food2_${subjectInfo.id}.csv`);
-                console.log(`✅ Gaze CSV downloaded (${gazeLog.length} rows)`);
-            }
-        } else {
-            console.warn("⚠️ 眼动数据为空");
-        }
-
-        updateStatus("✅ 本地数据下载完成！正在上传到云端...");
-        alert(`数据已下载到手机！\n评分数据 ${ratingLog.length} 条\n决策行为 ${behaviorLog.length} 条\n眼动数据 ${gazeLog.length} 条\n\n正在同步到云端...`);
-
-    } catch (e) {
-        console.error("Download Error:", e);
-        updateStatus("⚠️ 本地下载出错: " + e.message);
-        alert("下载出错，请截图此页面并联系主试。错误: " + e.message);
-    }
-
-    // ==================== 第二步：尝试云端同步 ====================
-    try {
         updateStatus("正在上传 评分数据(第一阶段)...");
         await syncWithBackend('rating_food2', ratingLog);
         await new Promise(r => setTimeout(r, 1000));
 
         updateStatus("正在上传 行为决策数据(第二阶段)...");
         await syncWithBackend('behavior_food2', behaviorLog);
+        await new Promise(r => setTimeout(r, 1000));
 
         updateStatus("行为数据已提交，开始上传眼动数据...");
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 1000));
 
         // 分块上传眼动数据
         const CHUNK_SIZE = 50;
@@ -871,10 +822,50 @@ async function exportData() {
         updateStatus("正在进行最终校验，请勿关闭页面...");
         await new Promise(r => setTimeout(r, 3000));
 
-        updateStatus("✅ 所有数据已安全上传完毕！任务彻底完成。您可以关闭页面。");
+        cloudSuccess = true;
+        updateStatus("✅ 云端数据上传完毕！正在准备本地备份下载...");
+        console.log("✅ Cloud sync completed successfully.");
     } catch (e) {
         console.error("Cloud Sync Error:", e);
-        updateStatus("⚠️ 数据已下载到手机。云端同步遇到问题: " + e.message + "\n请将手机下载的 CSV 文件发送给主试。");
+        updateStatus("⚠️ 云端上传遇到问题，正在尝试本地备份下载...");
+    }
+
+    // ==================== 第二步：本地下载备份（iOS Safari 兼容） ====================
+    try {
+        const ratingCSV = jsonToCSV(ratingLog);
+        const behaviorCSV = jsonToCSV(behaviorLog);
+
+        // iOS Safari 兼容下载
+        downloadCSV(ratingCSV, `rating_food2_${subjectInfo.id}.csv`);
+        await new Promise(r => setTimeout(r, 1000));
+
+        downloadCSV(behaviorCSV, `behavior_food2_${subjectInfo.id}.csv`);
+        await new Promise(r => setTimeout(r, 1000));
+
+        // 眼动数据：因为数据量巨大，分块下载
+        if (gazeLog.length > 0) {
+            const GAZE_CSV_CHUNK = 3000;
+            const totalParts = Math.ceil(gazeLog.length / GAZE_CSV_CHUNK);
+            for (let p = 0; p < totalParts; p++) {
+                const partData = gazeLog.slice(p * GAZE_CSV_CHUNK, (p + 1) * GAZE_CSV_CHUNK);
+                const partCSV = jsonToCSV(partData);
+                downloadCSV(partCSV, `gaze_food2_${subjectInfo.id}_part${p + 1}.csv`);
+                await new Promise(r => setTimeout(r, 1000));
+            }
+        }
+        console.log("✅ Local download completed.");
+    } catch (e) {
+        console.error("Local download error (non-critical):", e);
+        // 本地下载失败不影响整体，云端已保存
+    }
+
+    // ==================== 最终状态 ====================
+    if (cloudSuccess) {
+        updateStatus("✅ 所有数据已安全上传到云端！任务彻底完成。您可以关闭页面。");
+        alert(`实验完成！数据已成功上传！\n\n评分数据 ${ratingLog.length} 条\n决策行为 ${behaviorLog.length} 条\n眼动数据 ${gazeLog.length} 条\n\n您可以安全关闭页面。`);
+    } else {
+        updateStatus("⚠️ 云端上传可能未完成，请保留手机上下载的CSV文件并联系主试。");
+        alert(`实验完成！但云端同步可能未完成。\n请检查手机上是否有下载的 CSV 文件，并发送给主试。`);
     }
 }
 
@@ -977,15 +968,33 @@ function jsonToCSV(json) {
 }
 
 function downloadCSV(csv, filename) {
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", filename);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+        // 方法1: 使用 data URI（iOS Safari 兼容）
+        const encodedCSV = encodeURIComponent(csv);
+        const dataUri = 'data:text/csv;charset=utf-8,' + encodedCSV;
+
+        const link = document.createElement("a");
+        link.setAttribute("href", dataUri);
+        link.setAttribute("download", filename);
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        console.log(`📥 Downloaded: ${filename}`);
+    } catch (e) {
+        console.warn(`方法1失败 (${e.message})，尝试新窗口打开...`);
+        try {
+            // 方法2: 在新窗口中打开 CSV 内容，让用户手动保存
+            const newWindow = window.open('', '_blank');
+            if (newWindow) {
+                newWindow.document.write('<pre>' + csv.replace(/</g, '&lt;') + '</pre>');
+                newWindow.document.title = filename;
+                newWindow.document.close();
+            }
+        } catch (e2) {
+            console.error(`所有下载方法均失败: ${e2.message}`);
+        }
+    }
 }
 
 // 绑定开始按钮
