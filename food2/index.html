@@ -66,6 +66,20 @@
     </div>
   </div>
 
+  <!-- 数据下载面板 (实验结束后显示) -->
+  <div id="download-overlay" class="overlay" style="display:none;">
+    <div class="modal">
+      <h2>✅ 实验完成！</h2>
+      <p id="download-summary">正在准备数据...</p>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-top:16px;">
+        <button id="dl-rating" class="dl-btn" style="display:none;">📊 下载评分数据</button>
+        <button id="dl-behavior" class="dl-btn" style="display:none;">🧠 下载行为数据</button>
+        <button id="dl-gaze" class="dl-btn" style="display:none;">👁 下载眼动数据</button>
+      </div>
+      <p style="margin-top:16px;font-size:13px;color:#888;">请逐个点击按钮下载，然后将文件发送给主试</p>
+    </div>
+  </div>
+
   <!-- 加载层 -->
   <div id="loading-overlay" class="loading-overlay">
     <p id="loading-text">正在载入 MediaPipe 和图片资源...</p>

@@ -182,3 +182,16 @@ button {
     z-index: 2000;
     display: none;
 }
+
+.dl-btn {
+    background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%) !important;
+    box-shadow: 0 6px 15px rgba(67, 233, 123, 0.3) !important;
+    font-size: 1rem !important;
+    padding: 14px !important;
+}
+
+.dl-btn.done {
+    background: #ccc !important;
+    box-shadow: none !important;
+    color: #666 !important;
+}
