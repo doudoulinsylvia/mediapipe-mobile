@@ -692,8 +692,7 @@ function recordGazeFrame() {
         frame.ry_outer = lastGaze.landmarks.rightOuter.y;
     }
 
-    // 468 点面部网格 (格式: x1:y1|x2:y2|...|x468:y468)
-    // 分析时用 split('|') 即可还原为坐标数组
+    // 468 点面部网格 — 仅保存到本地 CSV，不上传云端（数据量太大）
     frame.face_mesh = lastGaze.mesh;
 
     gazeLog.push(frame);
@@ -797,30 +796,42 @@ async function exportData() {
     try {
         updateStatus("实验完成！正在上传数据到云端，请勿关闭页面...");
 
-        updateStatus("正在上传 评分数据(第一阶段)...");
-        await syncWithBackend('rating_food2', ratingLog);
-        await new Promise(r => setTimeout(r, 1000));
-
-        updateStatus("正在上传 行为决策数据(第二阶段)...");
-        await syncWithBackend('behavior_food2', behaviorLog);
-        await new Promise(r => setTimeout(r, 1000));
+        // 评分 + 行为数据 并行上传（数据量小，可以同时发）
+        updateStatus("正在上传 评分 & 行为数据...");
+        await Promise.all([
+            syncWithBackend('rating_food2', ratingLog),
+            syncWithBackend('behavior_food2', behaviorLog)
+        ]);
+        await new Promise(r => setTimeout(r, 500));
 
         updateStatus("行为数据已提交，开始上传眼动数据...");
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 500));
 
-        // 分块上传眼动数据
-        const CHUNK_SIZE = 50;
-        const totalChunks = Math.ceil(gazeLog.length / CHUNK_SIZE);
+        // 眼动数据：去除 face_mesh 字段后上传（减少 ~95% 数据量）
+        const gazeLogLight = gazeLog.map(frame => {
+            const { face_mesh, ...rest } = frame;
+            return rest;
+        });
 
-        for (let c = 0; c < totalChunks; c++) {
-            updateStatus(`正在上传眼动数据... (进度: ${c + 1}/${totalChunks})`);
-            const chunk = gazeLog.slice(c * CHUNK_SIZE, (c + 1) * CHUNK_SIZE);
-            syncWithBackendFetch('gaze_food2', chunk).catch(e => console.error(e));
-            await new Promise(r => setTimeout(r, 1500));
+        // 大块上传 + 并行发送（每块 500 行，同时发 3 块）
+        const CHUNK_SIZE = 500;
+        const totalChunks = Math.ceil(gazeLogLight.length / CHUNK_SIZE);
+        const PARALLEL = 3; // 同时发送 3 个请求
+
+        for (let c = 0; c < totalChunks; c += PARALLEL) {
+            const batch = [];
+            for (let p = 0; p < PARALLEL && (c + p) < totalChunks; p++) {
+                const idx = c + p;
+                updateStatus(`正在上传眼动数据... (进度: ${Math.min(idx + PARALLEL, totalChunks)}/${totalChunks})`);
+                const chunk = gazeLogLight.slice(idx * CHUNK_SIZE, (idx + 1) * CHUNK_SIZE);
+                batch.push(syncWithBackendFetch('gaze_food2', chunk).catch(e => console.error(e)));
+            }
+            // 等一小段时间再发下一批，避免完全淹没服务器
+            await new Promise(r => setTimeout(r, 400));
         }
 
         updateStatus("正在进行最终校验，请勿关闭页面...");
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 2000));
 
         cloudSuccess = true;
         updateStatus("✅ 云端数据上传完毕！正在准备本地备份下载...");
