@@ -8,7 +8,7 @@ const startBtn = document.getElementById('start-btn');
 const wechatPrompt = document.getElementById('wechat-prompt');
 
 // 实验参数
-const TRIAL_LIMIT = 3; // 正式实验试次数
+const TRIAL_LIMIT = 150; // 正式实验试次数
 const TOTAL_IMITS_COUNT = 200; // 总图片数
 const IMAGES_PER_TRIAL = 2; // 二元选择（上下排布）
 const BG_COLOR = '#ffffff';
@@ -101,8 +101,8 @@ function preloadImages(imageIds) {
 async function initMediaPipe() {
     updateStatus("正在载入实验环境与图片资源，请稍候...");
 
-    // 根据需求，评分阶段只选取 3 张图片
-    const reqCount = 3;
+    // 根据需求，评分阶段选取 200 张图片
+    const reqCount = 200;
     const allIds = Array.from({ length: TOTAL_IMITS_COUNT }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
     const selectedIds = allIds.slice(0, reqCount);
 
@@ -573,7 +573,10 @@ function generateCombinations() {
     perms.sort(() => Math.random() - 0.5);
 
     trials = [];
-    for (let p of perms) {
+    // 按照需要的 TRIAL_LIMIT 数量生成试次
+    for (let k = 0; k < TRIAL_LIMIT; k++) {
+        // 从候选的评分组合池中随机抽取一对
+        const p = perms[Math.floor(Math.random() * perms.length)];
         const top_rating = p[0];
         const bottom_rating = p[1];
 
