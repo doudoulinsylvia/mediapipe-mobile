@@ -790,93 +790,40 @@ function loop() {
 
 async function exportData() {
     console.log("🏁 Experiment finished. Starting export...");
+    updateStatus("实验完成！正在准备数据下载...");
 
-    // ==================== 第一步：云端上传（最可靠，优先执行） ====================
-    let cloudSuccess = false;
     try {
-        updateStatus("实验完成！正在上传数据到云端，请勿关闭页面...");
-
-        // 评分 + 行为数据 并行上传（数据量小，可以同时发）
-        updateStatus("正在上传 评分 & 行为数据...");
-        await Promise.all([
-            syncWithBackend('rating_food2', ratingLog),
-            syncWithBackend('behavior_food2', behaviorLog)
-        ]);
-        await new Promise(r => setTimeout(r, 500));
-
-        updateStatus("行为数据已提交，开始上传眼动数据...");
-        await new Promise(r => setTimeout(r, 500));
-
-        // 眼动数据：去除 face_mesh 字段后上传（减少 ~95% 数据量）
-        const gazeLogLight = gazeLog.map(frame => {
-            const { face_mesh, ...rest } = frame;
-            return rest;
-        });
-
-        // 大块上传 + 并行发送（每块 500 行，同时发 3 块）
-        const CHUNK_SIZE = 500;
-        const totalChunks = Math.ceil(gazeLogLight.length / CHUNK_SIZE);
-        const PARALLEL = 3; // 同时发送 3 个请求
-
-        for (let c = 0; c < totalChunks; c += PARALLEL) {
-            const batch = [];
-            for (let p = 0; p < PARALLEL && (c + p) < totalChunks; p++) {
-                const idx = c + p;
-                updateStatus(`正在上传眼动数据... (进度: ${Math.min(idx + PARALLEL, totalChunks)}/${totalChunks})`);
-                const chunk = gazeLogLight.slice(idx * CHUNK_SIZE, (idx + 1) * CHUNK_SIZE);
-                batch.push(syncWithBackendFetch('gaze_food2', chunk).catch(e => console.error(e)));
-            }
-            // 等一小段时间再发下一批，避免完全淹没服务器
-            await new Promise(r => setTimeout(r, 400));
-        }
-
-        updateStatus("正在进行最终校验，请勿关闭页面...");
-        await new Promise(r => setTimeout(r, 2000));
-
-        cloudSuccess = true;
-        updateStatus("✅ 云端数据上传完毕！正在准备本地备份下载...");
-        console.log("✅ Cloud sync completed successfully.");
-    } catch (e) {
-        console.error("Cloud Sync Error:", e);
-        updateStatus("⚠️ 云端上传遇到问题，正在尝试本地备份下载...");
-    }
-
-    // ==================== 第二步：本地下载备份（iOS Safari 兼容） ====================
-    try {
+        // 1. 评分数据
         const ratingCSV = jsonToCSV(ratingLog);
-        const behaviorCSV = jsonToCSV(behaviorLog);
-
-        // iOS Safari 兼容下载
         downloadCSV(ratingCSV, `rating_food2_${subjectInfo.id}.csv`);
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 800));
 
+        // 2. 行为决策数据
+        const behaviorCSV = jsonToCSV(behaviorLog);
         downloadCSV(behaviorCSV, `behavior_food2_${subjectInfo.id}.csv`);
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 800));
 
-        // 眼动数据：因为数据量巨大，分块下载
+        // 3. 眼动数据（分块下载，防止数据量过大卡死）
         if (gazeLog.length > 0) {
+            updateStatus("正在准备眼动数据下载...");
             const GAZE_CSV_CHUNK = 3000;
             const totalParts = Math.ceil(gazeLog.length / GAZE_CSV_CHUNK);
             for (let p = 0; p < totalParts; p++) {
                 const partData = gazeLog.slice(p * GAZE_CSV_CHUNK, (p + 1) * GAZE_CSV_CHUNK);
                 const partCSV = jsonToCSV(partData);
-                downloadCSV(partCSV, `gaze_food2_${subjectInfo.id}_part${p + 1}.csv`);
-                await new Promise(r => setTimeout(r, 1000));
+                const suffix = totalParts > 1 ? `_part${p + 1}` : '';
+                downloadCSV(partCSV, `gaze_food2_${subjectInfo.id}${suffix}.csv`);
+                await new Promise(r => setTimeout(r, 800));
             }
         }
-        console.log("✅ Local download completed.");
-    } catch (e) {
-        console.error("Local download error (non-critical):", e);
-        // 本地下载失败不影响整体，云端已保存
-    }
 
-    // ==================== 最终状态 ====================
-    if (cloudSuccess) {
-        updateStatus("✅ 所有数据已安全上传到云端！任务彻底完成。您可以关闭页面。");
-        alert(`实验完成！数据已成功上传！\n\n评分数据 ${ratingLog.length} 条\n决策行为 ${behaviorLog.length} 条\n眼动数据 ${gazeLog.length} 条\n\n您可以安全关闭页面。`);
-    } else {
-        updateStatus("⚠️ 云端上传可能未完成，请保留手机上下载的CSV文件并联系主试。");
-        alert(`实验完成！但云端同步可能未完成。\n请检查手机上是否有下载的 CSV 文件，并发送给主试。`);
+        updateStatus("✅ 所有数据已下载完成！请将下载的 CSV 文件发送给主试。");
+        alert(`实验完成！数据已下载到手机！\n\n📊 评分数据 ${ratingLog.length} 条\n🧠 决策行为 ${behaviorLog.length} 条\n👁 眼动数据 ${gazeLog.length} 条\n\n请将下载的 CSV 文件发送给主试，谢谢！`);
+
+    } catch (e) {
+        console.error("Export Error:", e);
+        updateStatus("⚠️ 下载出错: " + e.message);
+        alert("数据下载遇到问题，请截图此页面并联系主试。\n错误: " + e.message);
     }
 }
 
