@@ -792,12 +792,7 @@ async function exportData() {
     console.log("🏁 Experiment finished. Starting export...");
     updateStatus("✅ 实验完成！请在弹出面板中下载数据。");
 
-    // 准备 CSV 数据
-    const ratingCSV = jsonToCSV(ratingLog);
-    const behaviorCSV = jsonToCSV(behaviorLog);
-    const gazeCSV = gazeLog.length > 0 ? jsonToCSV(gazeLog) : '';
-
-    // 显示下载面板
+    // 先显示面板（不做任何 CSV 处理，防止崩溃）
     const downloadOverlay = document.getElementById('download-overlay');
     const dlSummary = document.getElementById('download-summary');
     dlSummary.textContent = `评分 ${ratingLog.length} 条 | 行为 ${behaviorLog.length} 条 | 眼动 ${gazeLog.length} 条`;
@@ -812,63 +807,82 @@ async function exportData() {
 
     downloadOverlay.style.display = 'flex';
 
-    // 绑定按钮事件 — 每个按钮点击触发一次独立的分享/下载
-    dlRating.onclick = () => shareOrDownload(ratingCSV, `rating_food2_${subjectInfo.id}.csv`, dlRating);
-    dlBehavior.onclick = () => shareOrDownload(behaviorCSV, `behavior_food2_${subjectInfo.id}.csv`, dlBehavior);
-    dlGaze.onclick = () => shareOrDownload(gazeCSV, `gaze_food2_${subjectInfo.id}.csv`, dlGaze);
+    // 按钮点击时才生成 CSV（延迟生成，防止内存爆炸）
+    dlRating.onclick = async () => {
+        dlRating.textContent = '⏳ 正在生成...';
+        await new Promise(r => setTimeout(r, 100));
+        try {
+            const csv = jsonToCSV(ratingLog);
+            await shareOrDownload(csv, `rating_food2_${subjectInfo.id}.csv`, dlRating, '📊 下载评分数据');
+        } catch(e) { alert('评分数据导出失败: ' + e.message); dlRating.textContent = '❌ 失败，点击重试'; }
+    };
+
+    dlBehavior.onclick = async () => {
+        dlBehavior.textContent = '⏳ 正在生成...';
+        await new Promise(r => setTimeout(r, 100));
+        try {
+            const csv = jsonToCSV(behaviorLog);
+            await shareOrDownload(csv, `behavior_food2_${subjectInfo.id}.csv`, dlBehavior, '🧠 下载行为数据');
+        } catch(e) { alert('行为数据导出失败: ' + e.message); dlBehavior.textContent = '❌ 失败，点击重试'; }
+    };
+
+    dlGaze.onclick = async () => {
+        dlGaze.textContent = '⏳ 正在生成眼动数据(可能需要几秒)...';
+        await new Promise(r => setTimeout(r, 200));
+        try {
+            // 眼动数据去掉 face_mesh 字段用于分享（太大了）
+            const gazeLogLight = gazeLog.map(({ face_mesh, ...rest }) => rest);
+            const csv = jsonToCSV(gazeLogLight);
+            await shareOrDownload(csv, `gaze_food2_${subjectInfo.id}.csv`, dlGaze, '👁 下载眼动数据');
+        } catch(e) { alert('眼动数据导出失败: ' + e.message); dlGaze.textContent = '❌ 失败，点击重试'; }
+    };
 }
 
-// iOS 兼容的文件分享/下载
-async function shareOrDownload(csvContent, filename, btnElement) {
+// iOS 兼容的文件分享/下载（用户手势触发）
+async function shareOrDownload(csvContent, filename, btnElement, originalLabel) {
+    // 方法1: Web Share API (iOS Safari 原生分享弹窗)
     try {
-        // 方法1: Web Share API (iOS Safari 原生分享弹窗，支持正确文件名)
         const file = new File([csvContent], filename, { type: 'text/csv' });
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            await navigator.share({
-                files: [file],
-                title: filename
-            });
-            // 分享成功，标记按钮
-            btnElement.textContent = '✅ ' + btnElement.textContent.slice(2) + ' (已保存)';
+            await navigator.share({ files: [file], title: filename });
+            btnElement.textContent = '✅ ' + originalLabel.slice(2) + ' (已保存)';
             btnElement.classList.add('done');
             return;
         }
     } catch (e) {
-        // 用户取消分享不算错误
         if (e.name === 'AbortError') {
-            console.log('用户取消了分享');
-            return;
+            btnElement.textContent = originalLabel;
+            return; // 用户取消，恢复按钮
         }
         console.warn('Web Share failed:', e);
     }
 
+    // 方法2: Blob URL (桌面浏览器)
     try {
-        // 方法2: Blob URL 下载 (非 iOS 设备)
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
         link.download = filename;
-        link.style.display = 'none';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         setTimeout(() => URL.revokeObjectURL(url), 5000);
-
-        btnElement.textContent = '✅ ' + btnElement.textContent.slice(2) + ' (已下载)';
+        btnElement.textContent = '✅ ' + originalLabel.slice(2) + ' (已下载)';
         btnElement.classList.add('done');
     } catch (e) {
-        console.warn('Blob download failed:', e);
-        // 方法3: 新窗口显示 CSV 内容
+        console.warn('Blob failed:', e);
+        // 方法3: 新窗口打开
         const w = window.open('', '_blank');
         if (w) {
-            w.document.write('<html><head><title>' + filename + '</title></head><body><pre>' +
-                csvContent.replace(/</g, '&lt;') + '</pre></body></html>');
+            w.document.write('<pre>' + csvContent.substring(0, 500000).replace(/</g, '&lt;') + '</pre>');
+            w.document.title = filename;
             w.document.close();
-            btnElement.textContent = '📄 ' + btnElement.textContent.slice(2) + ' (已在新窗口打开)';
+            btnElement.textContent = '📄 已在新窗口打开';
             btnElement.classList.add('done');
         } else {
-            alert('无法下载文件，请联系主试。');
+            alert('下载失败，请联系主试');
+            btnElement.textContent = originalLabel;
         }
     }
 }
