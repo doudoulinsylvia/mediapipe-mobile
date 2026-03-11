@@ -497,9 +497,16 @@ function finishCalibration() {
     calibLimits.x_min = Math.min(...res) - (res[0] - Math.min(...res)) * 0.4;
     calibLimits.x_max = Math.max(...res) + (Math.max(...res) - res[0]) * 0.4;
 
-    currentState = State.RATING_FIXATION;
-    currentRatingIndex = 0;
-    startRatingTrial();
+    // 判断是否已经完成了评分阶段
+    if (currentRatingIndex >= ratingImages.length) {
+        // 评分已完成，继续二元选择阶段的下一个试次
+        startTrial();
+    } else {
+        // 首次校准完成，进入评分阶段
+        currentState = State.RATING_FIXATION;
+        currentRatingIndex = 0;
+        startRatingTrial();
+    }
 }
 
 function startRatingTrial() {
