@@ -615,12 +615,15 @@ function startTrial() {
     }, 800 + Math.random() * 200);
 }
 
+let lastFeedbackTrialIndex = 0; // 用于渲染反馈时安全引用的试次索引
+
 function handleDecision(selectionIndex) {
     const trial = trials[currentTrialIndex];
     trial.selectionIndex = selectionIndex;
     trial.chosenImageId = trial.images[selectionIndex];
     trial.rt = performance.now() - trial.decisionStartTime;
 
+    lastFeedbackTrialIndex = currentTrialIndex; // 保存当前索引，防止渲染越界
     currentState = State.TRIAL_FEEDBACK;
 
     setTimeout(() => {
@@ -748,7 +751,10 @@ function loop() {
             break;
 
         case State.TRIAL_FEEDBACK:
-            drawDecision(trials[currentTrialIndex], trials[currentTrialIndex].selectionIndex);
+            // 使用保存的安全索引，防止 currentTrialIndex 越界
+            if (trials[lastFeedbackTrialIndex]) {
+                drawDecision(trials[lastFeedbackTrialIndex], trials[lastFeedbackTrialIndex].selectionIndex);
+            }
             break;
 
         case State.BREAK:
@@ -785,31 +791,62 @@ function loop() {
 
 async function exportData() {
     console.log("🏁 Experiment finished. Starting export...");
-    alert(`全流程结束！正在同步数据。\n本次共录得：\n评分数据 ${ratingLog.length} 条\n决策行为 ${behaviorLog.length} 条\n眼动原始数据 ${gazeLog.length} 条`);
 
+    // ==================== 第一步：先确保本地下载成功 ====================
     try {
-        updateStatus("实验完成，正在准备行为数据...");
+        updateStatus("实验完成，正在准备数据下载...");
+
+        // 立即生成并下载评分数据（最重要）
+        const ratingCSV = jsonToCSV(ratingLog);
+        if (ratingCSV) {
+            downloadCSV(ratingCSV, `rating_food2_${subjectInfo.id}.csv`);
+            console.log(`✅ Rating CSV downloaded (${ratingLog.length} rows)`);
+        }
+        await new Promise(r => setTimeout(r, 800));
+
+        // 下载行为数据
         const behaviorCSV = jsonToCSV(behaviorLog);
+        if (behaviorCSV) {
+            downloadCSV(behaviorCSV, `behavior_food2_${subjectInfo.id}.csv`);
+            console.log(`✅ Behavior CSV downloaded (${behaviorLog.length} rows)`);
+        }
+        await new Promise(r => setTimeout(r, 800));
 
-        updateStatus("行为数据就绪，正在转换眼动数据，请稍候...");
-        await new Promise(r => setTimeout(r, 600)); // 留点时间显示 Alert
-
-        if (gazeLog.length === 0) {
-            updateStatus("⚠️ 警告：眼动数据为空，可能是因为摄像头全程未捕捉到面部。");
+        // 分批生成眼动数据 CSV（防止大量数据卡死）
+        updateStatus("正在处理眼动数据，请勿关闭页面...");
+        if (gazeLog.length > 0) {
+            // 如果眼动数据量很大，分块生成 CSV
+            const GAZE_CSV_CHUNK = 5000;
+            if (gazeLog.length > GAZE_CSV_CHUNK) {
+                // 超大数据量：分多个文件下载
+                const totalParts = Math.ceil(gazeLog.length / GAZE_CSV_CHUNK);
+                for (let p = 0; p < totalParts; p++) {
+                    const partData = gazeLog.slice(p * GAZE_CSV_CHUNK, (p + 1) * GAZE_CSV_CHUNK);
+                    const partCSV = jsonToCSV(partData);
+                    downloadCSV(partCSV, `gaze_food2_${subjectInfo.id}_part${p + 1}.csv`);
+                    await new Promise(r => setTimeout(r, 800));
+                }
+                console.log(`✅ Gaze CSV downloaded in ${totalParts} parts (${gazeLog.length} rows total)`);
+            } else {
+                const gazeCSV = jsonToCSV(gazeLog);
+                downloadCSV(gazeCSV, `gaze_food2_${subjectInfo.id}.csv`);
+                console.log(`✅ Gaze CSV downloaded (${gazeLog.length} rows)`);
+            }
+        } else {
+            console.warn("⚠️ 眼动数据为空");
         }
 
-        const gazeCSV = jsonToCSV(gazeLog);
-        updateStatus("所有数据准备就绪，正在启动下载...");
+        updateStatus("✅ 本地数据下载完成！正在上传到云端...");
+        alert(`数据已下载到手机！\n评分数据 ${ratingLog.length} 条\n决策行为 ${behaviorLog.length} 条\n眼动数据 ${gazeLog.length} 条\n\n正在同步到云端...`);
 
-        // 1. 本地下载备份
-        const ratingCSV = jsonToCSV(ratingLog);
-        downloadCSV(ratingCSV, `rating_food2_${subjectInfo.id}.csv`);
-        await new Promise(r => setTimeout(r, 1000));
-        downloadCSV(behaviorCSV, `behavior_food2_${subjectInfo.id}.csv`);
-        await new Promise(r => setTimeout(r, 1000));
-        downloadCSV(gazeCSV, `gaze_food2_${subjectInfo.id}.csv`);
+    } catch (e) {
+        console.error("Download Error:", e);
+        updateStatus("⚠️ 本地下载出错: " + e.message);
+        alert("下载出错，请截图此页面并联系主试。错误: " + e.message);
+    }
 
-        // 2. 同步到 Google Sheets
+    // ==================== 第二步：尝试云端同步 ====================
+    try {
         updateStatus("正在上传 评分数据(第一阶段)...");
         await syncWithBackend('rating_food2', ratingLog);
         await new Promise(r => setTimeout(r, 1000));
@@ -820,26 +857,23 @@ async function exportData() {
         updateStatus("行为数据已提交，开始上传眼动数据...");
         await new Promise(r => setTimeout(r, 2000));
 
-        // 分块上传眼动数据（加速：每块 50 行，并行触发不阻挡）
+        // 分块上传眼动数据
         const CHUNK_SIZE = 50;
         const totalChunks = Math.ceil(gazeLog.length / CHUNK_SIZE);
 
-        updateStatus(`正在后台极速上传 ${gazeLog.length} 行眼动数据，您可以离开页面...`);
-        const gazePromises = [];
         for (let c = 0; c < totalChunks; c++) {
-            updateStatus(`正在安全上传眼动数据... (进度: ${c + 1}/${totalChunks})`);
+            updateStatus(`正在上传眼动数据... (进度: ${c + 1}/${totalChunks})`);
             const chunk = gazeLog.slice(c * CHUNK_SIZE, (c + 1) * CHUNK_SIZE);
             syncWithBackendFetch('gaze_food2', chunk).catch(e => console.error(e));
             await new Promise(r => setTimeout(r, 1500));
         }
 
-        // 额外等待 3 秒，确保最后一批数据完全进入谷歌服务器，防止被试秒关页面切断上传
         updateStatus("正在进行最终校验，请勿关闭页面...");
         await new Promise(r => setTimeout(r, 3000));
 
         updateStatus("✅ 所有数据已安全上传完毕！任务彻底完成。您可以关闭页面。");
     } catch (e) {
-        console.error("Export Error:", e);
+        console.error("Cloud Sync Error:", e);
         updateStatus("⚠️ 数据已下载到手机。云端同步遇到问题: " + e.message + "\n请将手机下载的 CSV 文件发送给主试。");
     }
 }
