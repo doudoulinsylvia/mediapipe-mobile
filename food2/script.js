@@ -195,7 +195,10 @@ function onResults(results) {
         // 3. 瞳孔大小计算 (复刻 PC 端 Python 逻辑)
         const l_iris_size = Math.hypot(lms[469].x - lms[471].x, lms[469].y - lms[471].y);
         const r_iris_size = Math.hypot(lms[474].x - lms[476].x, lms[474].y - lms[476].y);
-        const pupil_size = ((l_iris_size + r_iris_size) / 2.0) / (h_dist + 1e-6);
+        
+        lastGaze.pupil_L = (l_iris_size / (h_dist + 1e-6)).toFixed(5);
+        lastGaze.pupil_R = (r_iris_size / (h_dist + 1e-6)).toFixed(5);
+        lastGaze.pupil_avg = ((Number(lastGaze.pupil_L) + Number(lastGaze.pupil_R)) / 2.0).toFixed(5);
 
         // 4. 垂直 Y 映射计算 (粗略估计眼球上下运动)
         // 使用眼眶上下边界中点作为参考参考
@@ -212,7 +215,6 @@ function onResults(results) {
         lastGaze.raw_y = raw_y;
         lastGaze.valid = !!valid;
         lastGaze.ratio = ratio; // 新增：保存比例用于调试
-        lastGaze.pupil_size = pupil_size;
 
         // 映射到屏幕坐标
         lastGaze.x = mapX(raw_x);
@@ -267,7 +269,9 @@ function startExperiment() {
         name: document.getElementById('subject-name').value,
         label: document.getElementById('subject-label').value,
         gender: document.getElementById('subject-gender').value,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        screen_width: window.innerWidth,
+        screen_height: window.innerHeight
     };
 
     if (!subjectInfo.id || !subjectInfo.name) {
@@ -648,6 +652,8 @@ function handleDecision(selectionIndex) {
             chosen_img_id: trial.chosenImageId, // 实际图片的数字编号
             rt: trial.rt.toFixed(2),
             gaze_total_frames: gazeLog.length,
+            screen_width: canvas.width,
+            screen_height: canvas.height,
             ...subjectInfo
         });
 
@@ -673,17 +679,49 @@ function recordGazeFrame() {
         ? (currentRatingIndex + 1)
         : (currentState === State.PHASE1_END ? 'transition' : (currentTrialIndex + 1));
 
+    // 计算 ROI (仅在二元选择决策阶段有效)
+    let roi = 0;
+    if (currentState === State.TRIAL_DECISION || currentState === State.TRIAL_FEEDBACK) {
+        const margin = 30, spacing = 30, topMargin = 80;
+        const availableWidth = canvas.width - margin * 2;
+        const availableHeight = canvas.height - topMargin - margin;
+        const imgW = Math.min(availableWidth * 0.8, 400);
+        const imgH = (availableHeight - spacing) / 2;
+        const size = Math.min(imgW, imgH);
+        const offsetX = (canvas.width - size) / 2;
+        const totalH = size * 2 + spacing;
+        const startY = topMargin + (availableHeight - totalH) / 2;
+
+        const gx = lastGaze.x;
+        const gy = lastGaze.y;
+
+        // 这里的判断逻辑与 drawDecision 保持一致
+        if (gx >= offsetX && gx <= offsetX + size) {
+            if (gy >= startY && gy <= startY + size) {
+                roi = 1; // 上图
+            } else if (gy >= startY + size + spacing && gy <= startY + size + spacing + size) {
+                roi = 2; // 下图
+            }
+        }
+    }
+
     const frame = {
         subject_id: subjectInfo.id || '',
         subject_name: subjectInfo.name || '',
         timestamp: performance.now().toFixed(2),
         trial: displayTrialNum,
         phase: currentState,
-        x: lastGaze.x.toFixed(2),
-        y: lastGaze.y.toFixed(2),
-        raw_x: lastGaze.raw_x.toFixed(4),
-        pupil_size: lastGaze.pupil_size.toFixed(5),
-        valid: lastGaze.valid ? 1 : 0
+        screen_x: lastGaze.x.toFixed(2),
+        screen_y: lastGaze.y.toFixed(2),
+        gazeX: (lastGaze.x / (canvas.width || 1)).toFixed(4), // 归一化 X
+        gazeY: (lastGaze.y / (canvas.height || 1)).toFixed(4), // 归一化 Y
+        roi: roi,
+        valid: lastGaze.valid ? 1 : 0,
+        sw: canvas.width,
+        sh: canvas.height,
+        pupil_L: lastGaze.pupil_L,
+        pupil_R: lastGaze.pupil_R,
+        pupil_avg: lastGaze.pupil_avg
     };
 
     // 添加核心 6 个点
