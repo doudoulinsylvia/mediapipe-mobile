@@ -150,7 +150,17 @@ async function initMediaPipe() {
     } catch (e) {
         clearTimeout(loaderWatchdog);
         console.error("Init Error:", e);
-        updateStatus("❌ 启动失败: 请检查您的浏览器是否授权摄像头权限，并使用 HTTPS 访问。");
+        let errorMsg = "❌ 启动失败: ";
+        if (!window.isSecureContext) {
+            errorMsg += "必须使用 HTTPS 安全链接访问摄像头。";
+        } else if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
+            errorMsg += "摄像头权限被拒绝，请在浏览器设置中开启。";
+        } else if (e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError') {
+            errorMsg += "未查找到摄像头硬件。";
+        } else {
+            errorMsg += `错误码: ${e.name || 'Unknown'}. 请确保没有其他应用占用摄像头。`;
+        }
+        updateStatus(errorMsg);
     }
 }
 
