@@ -61,6 +61,8 @@ let calibData = [];
 let gazePath = []; // 用于实时绘制轨迹
 const MAX_GAZE_PATH = 20; // 轨迹保留帧数
 let frameCount = 0; // 帧计数器，确认算法是否正在运行
+let isFaceMeshReady = false; // AI 引擎就绪标志
+let isCameraReady = false;   // 摄像头就绪标志
 let calibPoints = [
     { x: 0.5, y: 0.5 }, { x: 0.2, y: 0.2 }, { x: 0.8, y: 0.2 },
     { x: 0.8, y: 0.8 }, { x: 0.2, y: 0.8 }, { x: 0.5, y: 0.2 },
@@ -134,6 +136,8 @@ async function initMediaPipe() {
         });
 
         faceMesh.onResults(onResults);
+        isFaceMeshReady = true;
+        updateStatus("🤖 AI 引擎载入完成，正在连接摄像头...");
 
         camera = new Camera(videoElement, {
             onFrame: async () => {
@@ -144,6 +148,7 @@ async function initMediaPipe() {
         });
 
         await camera.start();
+        isCameraReady = true;
         clearTimeout(loaderWatchdog);
 
         updateStatus("✅ 环境与图片准备完毕，请录入信息");
