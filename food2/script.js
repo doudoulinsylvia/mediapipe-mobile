@@ -56,8 +56,11 @@ let trialStartTime = 0;
 // MediaPipe 状态
 let faceMesh;
 let camera;
-let calibLimits = { x_min: 0, x_max: 1, x_center: 0.5 };
-let calibData = [];
+let calibLimits = { 
+    x_min: 0, x_max: 1, x_center: 0.5,
+    y_min: 0, y_max: 1, y_center: 0.5 
+};
+let calibData = []; // 存储 {x, y} 对象
 let gazePath = []; // 用于实时绘制轨迹
 const MAX_GAZE_PATH = 20; // 轨迹保留帧数
 let frameCount = 0; // 帧计数器，确认算法是否正在运行
@@ -141,7 +144,8 @@ async function initMediaPipe() {
 
         camera = new Camera(videoElement, {
             onFrame: async () => {
-                await faceMesh.send({ image: videoElement });
+                // 去掉 await，让摄像头不在等待 AI 结果的情况下全速运行
+                faceMesh.send({ image: videoElement });
             },
             width: 640,
             height: 480
@@ -225,11 +229,14 @@ function onResults(results) {
         lastGaze.valid = !!valid;
         lastGaze.ratio = ratio; // 新增：保存比例用于调试
 
-        // 映射到屏幕坐标
-        lastGaze.x = mapX(raw_x);
-        // 简单映射 Y：瞳孔在眼眶内的相对位置（一般在 0.3-0.7 之间）映射到 canvas.height
-        // 这个映射不是绝对精确，旨在反映上/下翻眼的趋势
-        lastGaze.y = Math.min(Math.max((raw_y - 0.2) / 0.6, 0), 1) * canvas.height;
+        // 5. 映射到屏幕坐标并进行平滑处理 (EMA)
+        const targetX = mapX(raw_x);
+        const targetY = mapY(raw_y);
+
+        // 平滑系数 (0.1-0.3 之间，越小越平滑但延迟越高)
+        const alpha = 0.25; 
+        lastGaze.x = lastGaze.x * (1 - alpha) + targetX * alpha;
+        lastGaze.y = lastGaze.y * (1 - alpha) + targetY * alpha;
 
         // 记录 468 个点 (关键改进)
         // 为了 CSV 效率，将其存为特定格式的字符串
@@ -268,11 +275,22 @@ function onResults(results) {
 function mapX(rx) {
     const { x_min, x_max, x_center } = calibLimits;
     if (rx < x_center) {
-        let norm = (rx - x_min) / (x_center - x_min);
+        let norm = (rx - x_min) / (x_center - x_min + 1e-6);
         return Math.max(0, norm) * (canvas.width / 2);
     } else {
-        let norm = (rx - x_center) / (x_max - x_center);
+        let norm = (rx - x_center) / (x_max - x_center + 1e-6);
         return (canvas.width / 2) + Math.min(1, norm) * (canvas.width / 2);
+    }
+}
+
+function mapY(ry) {
+    const { y_min, y_max, y_center } = calibLimits;
+    if (ry < y_center) {
+        let norm = (ry - y_min) / (y_center - y_min + 1e-6);
+        return Math.max(0, norm) * (canvas.height / 2);
+    } else {
+        let norm = (ry - y_center) / (y_max - y_center + 1e-6);
+        return (canvas.height / 2) + Math.min(1, norm) * (canvas.height / 2);
     }
 }
 
@@ -495,7 +513,7 @@ function handleScreenTap(clientX, clientY) {
 
     if (currentState === State.CALIBRATION) {
         if (lastGaze.valid) {
-            calibData.push(lastGaze.raw_x);
+            calibData.push({ x: lastGaze.raw_x, y: lastGaze.raw_y });
             currentCalibIndex++;
             updateStatus(`校准点 ${currentCalibIndex}/9 已采集`);
             if (currentCalibIndex >= calibPoints.length) {
@@ -523,10 +541,18 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 
 function finishCalibration() {
-    const res = calibData;
-    calibLimits.x_center = res[0]; // 第一个是中心点
-    calibLimits.x_min = Math.min(...res) - (res[0] - Math.min(...res)) * 0.4;
-    calibLimits.x_max = Math.max(...res) + (Math.max(...res) - res[0]) * 0.4;
+    const resX = calibData.map(d => d.x);
+    const resY = calibData.map(d => d.y);
+    
+    // 水平校准 (基于中心点和外显范围)
+    calibLimits.x_center = resX[0]; 
+    calibLimits.x_min = Math.min(...resX) - (resX[0] - Math.min(...resX)) * 0.4;
+    calibLimits.x_max = Math.max(...resX) + (Math.max(...resX) - resX[0]) * 0.4;
+
+    // 垂直校准 (新增：自动计算上下界)
+    calibLimits.y_center = resY[0];
+    calibLimits.y_min = Math.min(...resY) - (resY[0] - Math.min(...resY)) * 0.4;
+    calibLimits.y_max = Math.max(...resY) + (Math.max(...resY) - resY[0]) * 0.4;
 
     // 判断是否已经完成了评分阶段
     if (currentRatingIndex >= ratingImages.length) {
