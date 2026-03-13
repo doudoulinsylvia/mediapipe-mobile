@@ -190,9 +190,11 @@ async function initMediaPipe() {
 
         faceMesh.setOptions({
             maxNumFaces: 1,
-            refineLandmarks: true,
+            refineLandmarks: true, // 保留虹膜跟踪 (眼动必需)
             minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
+            minTrackingConfidence: 0.5,
+            selfieMode: false, // v9.3.0 彻底禁用不必要的镜像翻转举阵运算
+            enableFaceGeometry: false // v9.3.0 最核心优化：彻底禁用 3D 拓扑结构构建，释放爆炸级别的 WebGL 算力占用
         });
 
         faceMesh.onResults(onResults);
@@ -205,8 +207,9 @@ async function initMediaPipe() {
                 if (isProcessing) return; 
                 
                 isProcessing = true;
-                // 加上安全网：如果 AI 引擎卡死，5 秒后强制释放锁
-                const safetyNet = setTimeout(() => { isProcessing = false; }, 5000);
+                // v9.3.0 延长耐心：如果 AI 引擎卡死，30 秒后强制释放锁
+                // 旧款苹果手机的第一帧有时需要长达 10-15 秒的时间编译着色器
+                const safetyNet = setTimeout(() => { isProcessing = false; }, 30000);
                 
                 try {
                     // v9.2.0 终极杀招: Canvas Bridge (净化硬件加速流)
