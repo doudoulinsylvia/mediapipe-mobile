@@ -62,7 +62,7 @@ let calibLimits = {
 };
 let calibData = []; // 存储 {x, y} 对象
 let gazePath = []; // 用于实时绘制轨迹
-const MAX_GAZE_PATH = 20; // 轨迹保留帧数
+const MAX_GAZE_PATH = 10; // 轨迹保留帧数 (从 20 缩短至 10，减少视觉拖沓感)
 let frameCount = 0; // 帧计数器，确认算法是否正在运行
 let isFaceMeshReady = false; // AI 引擎就绪标志
 let isCameraReady = false;   // 摄像头就绪标志
@@ -254,8 +254,8 @@ function onResults(results) {
         const targetX = mapX(raw_x);
         const targetY = mapY(raw_y);
 
-        // 平滑系数 (0.1-0.3 之间，越小越平滑但延迟越高)
-        const alpha = 0.25; 
+        // 平滑系数 (0.8 代表新数据权重占 80%，响应更快，原为 0.25)
+        const alpha = 0.8; 
         lastGaze.x = lastGaze.x * (1 - alpha) + targetX * alpha;
         lastGaze.y = lastGaze.y * (1 - alpha) + targetY * alpha;
 
