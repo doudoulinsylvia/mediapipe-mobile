@@ -7,6 +7,50 @@ const registrationOverlay = document.getElementById('registration-overlay');
 const startBtn = document.getElementById('start-btn');
 const wechatPrompt = document.getElementById('wechat-prompt');
 
+// --------------------------------------------------------------------------
+// 全局异常捕获 (移动端调试利器)
+// --------------------------------------------------------------------------
+window.addEventListener('error', function(event) {
+    console.error("Global Error (Error Event):", event.error || event.message);
+    const msg = event.error ? event.error.message : event.message;
+    showCriticalError(msg);
+});
+
+window.addEventListener('unhandledrejection', function(event) {
+    console.error("Global Error (Unhandled Rejection):", event.reason);
+    const msg = event.reason ? (event.reason.message || event.reason) : "Unknown Promise Rejection";
+    showCriticalError(msg);
+});
+
+function showCriticalError(msg) {
+    // 隐藏加载层
+    const loader = document.getElementById('loading-overlay');
+    if (loader) loader.style.display = 'none';
+
+    // 创建或更新错误提示 UI
+    let errBanner = document.getElementById('critical-error-banner');
+    if (!errBanner) {
+        errBanner = document.createElement('div');
+        errBanner.id = 'critical-error-banner';
+        errBanner.style.position = 'fixed';
+        errBanner.style.top = '0';
+        errBanner.style.left = '0';
+        errBanner.style.width = '100vw';
+        errBanner.style.backgroundColor = 'rgba(255, 0, 0, 0.9)';
+        errBanner.style.color = 'white';
+        errBanner.style.padding = '15px';
+        errBanner.style.zIndex = '9999';
+        errBanner.style.fontWeight = 'bold';
+        errBanner.style.fontSize = '14px';
+        errBanner.style.wordWrap = 'break-word';
+        document.body.appendChild(errBanner);
+    }
+    errBanner.innerHTML = `⚠️ <br>System Error:<br>${msg}<br><br><small>请截图发给研究员并刷新页面</small>`;
+    
+    // 尝试更新状态栏
+    if (statusElement) statusElement.innerHTML = "❌ 系统崩溃";
+}
+
 // 实验参数
 const TRIAL_LIMIT = 150; // 正式实验试次数
 const TOTAL_IMITS_COUNT = 200; // 总图片数
@@ -142,12 +186,8 @@ async function initMediaPipe() {
         });
 
         faceMesh.onResults(onResults);
-        
-        // --- 核心修复：强制预热 AI 模型 ---
-        updateStatus("🤖 正在预热 AI 模型 (由于下载数据，手机可能需要 3-10 秒)...");
-        await faceMesh.initialize();
         isFaceMeshReady = true;
-        updateStatus("✅ AI 模型已就绪，正在连接摄像头...");
+        updateStatus("🤖 AI 引擎连接中...");
 
         camera = new Camera(videoElement, {
             onFrame: async () => {
