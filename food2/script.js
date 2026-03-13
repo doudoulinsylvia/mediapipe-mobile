@@ -154,7 +154,14 @@ function preloadImages(imageIds) {
 }
 
 async function initMediaPipe() {
-    updateStatus("正在载入实验环境与图片资源，请稍候...");
+    // 助手函数：同时更新状态栏和中央加载文字
+    function updateLoadingStep(msg) {
+        updateStatus(msg);
+        const lgText = document.getElementById('loading-text');
+        if (lgText) lgText.innerHTML = msg;
+    }
+
+    updateLoadingStep("[0/4] 正在连接服务器准备图片序列...");
 
     // 根据需求，评分阶段选取 200 张图片
     const reqCount = 200;
@@ -168,6 +175,7 @@ async function initMediaPipe() {
     }, 20000);
 
     try {
+        updateLoadingStep("[1/4] 网络请求：正在下载实验所需的高清图片...");
         await preloadImages(selectedIds);
         ratingImages = selectedIds;
         trials = []; // 将在评分阶段结束后自动生成
@@ -187,7 +195,7 @@ async function initMediaPipe() {
 
         faceMesh.onResults(onResults);
         isFaceMeshReady = true;
-        updateStatus("🤖 AI 引擎连接中...");
+        updateLoadingStep("[2/4] 环境就绪：正在拉起 AI 引擎并请求摄像头权限...");
 
         camera = new Camera(videoElement, {
             onFrame: async () => {
@@ -211,11 +219,15 @@ async function initMediaPipe() {
             facingMode: 'user'
         });
 
+        updateLoadingStep("[3/4] 授权通过：正在尝试启动物理摄像头硬件...");
         await camera.start();
         isCameraReady = true;
         clearTimeout(loaderWatchdog);
 
-        updateStatus("✅ 环境与图片准备完毕，请录入信息");
+        updateLoadingStep("[4/4] ✅ 所有系统正常，即将进入实验...");
+        // 给用户 0.5 秒时间看清最后的成功提示
+        await new Promise(r => setTimeout(r, 500));
+
         document.getElementById('loading-overlay').style.display = 'none';
         document.getElementById('registration-overlay').style.display = 'block';
         currentState = State.SUBJECT_INFO;
