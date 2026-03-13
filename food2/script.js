@@ -58,6 +58,8 @@ let faceMesh;
 let camera;
 let calibLimits = { x_min: 0, x_max: 1, x_center: 0.5 };
 let calibData = [];
+let gazePath = []; // 用于实时绘制轨迹
+const MAX_GAZE_PATH = 20; // 轨迹保留帧数
 let calibPoints = [
     { x: 0.5, y: 0.5 }, { x: 0.2, y: 0.2 }, { x: 0.8, y: 0.2 },
     { x: 0.8, y: 0.8 }, { x: 0.2, y: 0.8 }, { x: 0.5, y: 0.2 },
@@ -240,6 +242,14 @@ function onResults(results) {
             currentState === State.RATING_DECISION || currentState === State.RATING_FIXATION || currentState === State.RATING_FEEDBACK ||
             currentState === State.PHASE1_END) {
             recordGazeFrame();
+        }
+
+        // 更新轨迹路径
+        if (lastGaze.valid) {
+            gazePath.push({ x: lastGaze.x, y: lastGaze.y });
+            if (gazePath.length > MAX_GAZE_PATH) gazePath.shift();
+        } else {
+            gazePath = []; // 失去追踪时清空
         }
     } else {
         lastGaze.valid = false;
@@ -834,6 +844,36 @@ function loop() {
         ctx.arc(lastTouchFeedback.x, lastTouchFeedback.y, 25, 0, Math.PI * 2);
         ctx.stroke();
     }
+
+    // --- 新增：实时眼动注视点和轨迹 ---
+    drawGazeVisualization();
+}
+
+function drawGazeVisualization() {
+    if (!lastGaze.valid || gazePath.length < 2) return;
+
+    // 1. 绘制轨迹线
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(0, 242, 254, 0.4)'; // 半透明青色
+    ctx.lineWidth = 4;
+    ctx.lineJoin = 'round';
+    ctx.moveTo(gazePath[0].x, gazePath[0].y);
+    for (let i = 1; i < gazePath.length; i++) {
+        ctx.lineTo(gazePath[i].x, gazePath[i].y);
+    }
+    ctx.stroke();
+
+    // 2. 绘制当前注视点圆圈
+    ctx.beginPath();
+    ctx.fillStyle = 'rgba(0, 242, 254, 0.8)';
+    ctx.arc(lastGaze.x, lastGaze.y, 12, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // 加上一个白边中心点
+    ctx.beginPath();
+    ctx.fillStyle = '#fff';
+    ctx.arc(lastGaze.x, lastGaze.y, 4, 0, Math.PI * 2);
+    ctx.fill();
 }
 
 async function exportData() {
