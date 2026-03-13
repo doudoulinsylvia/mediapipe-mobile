@@ -142,8 +142,12 @@ async function initMediaPipe() {
         });
 
         faceMesh.onResults(onResults);
+        
+        // --- 核心修复：强制预热 AI 模型 ---
+        updateStatus("🤖 正在预热 AI 模型 (由于下载数据，手机可能需要 3-10 秒)...");
+        await faceMesh.initialize();
         isFaceMeshReady = true;
-        updateStatus("🤖 AI 引擎载入完成，正在连接摄像头...");
+        updateStatus("✅ AI 模型已就绪，正在连接摄像头...");
 
         camera = new Camera(videoElement, {
             onFrame: async () => {
@@ -151,8 +155,8 @@ async function initMediaPipe() {
                 if (isProcessing) return; 
                 
                 isProcessing = true;
-                // 加上安全网：如果 AI 引擎 1 秒内没响应，强制释放锁，防止卡死
-                const safetyNet = setTimeout(() => { isProcessing = false; }, 1000);
+                // 加上安全网：如果 AI 引擎卡死，5 秒后强制释放锁 (针对旧款手机放宽限制)
+                const safetyNet = setTimeout(() => { isProcessing = false; }, 5000);
                 
                 try {
                     await faceMesh.send({ image: videoElement });
