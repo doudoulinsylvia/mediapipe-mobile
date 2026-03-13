@@ -290,12 +290,25 @@ function onResults(results) {
         lastGaze.valid = !!valid;
         lastGaze.ratio = ratio; // 新增：保存比例用于调试
 
-        // 5. 映射到屏幕坐标并进行平滑处理 (EMA)
         const targetX = mapX(raw_x);
         const targetY = mapY(raw_y);
 
-        // 平滑系数 (0.8 代表新数据权重占 80%，响应更快，原为 0.25)
-        const alpha = 0.8; 
+        // --- v9.0.0 动态平滑算法 (防止乱跳并保持灵敏) ---
+        // 1. 计算出当前位置与目标新位置的物理距离（代表眼球移动速度）
+        const dx = targetX - lastGaze.x;
+        const dy = targetY - lastGaze.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        // 2. 动态调节系数：距离越小，说明只是眼球微颤或像素噪点，需要极强平滑(alpha变小)；距离越大，说明你真的看别处了，直接跳过去(alpha变大)
+        let alpha = 0.1; // 默认极低敏感度（稳定抗抖）
+        if (dist > 50) { // 如果移动超过 50 像素（大扫视）
+            alpha = 0.9; // 瞬间释放响应速度
+        } else if (dist > 10) { // 中等范围移动
+            // 在 10 到 50 像素之间，按比例平滑过渡
+            alpha = 0.1 + (0.8 * ((dist - 10) / 40.0));
+        }
+        
+        // 3. 应用动态系数进行更新
         lastGaze.x = lastGaze.x * (1 - alpha) + targetX * alpha;
         lastGaze.y = lastGaze.y * (1 - alpha) + targetY * alpha;
 
