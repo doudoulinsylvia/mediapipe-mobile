@@ -67,6 +67,8 @@ let frameCount = 0; // 帧计数器，确认算法是否正在运行
 let isFaceMeshReady = false; // AI 引擎就绪标志
 let isCameraReady = false;   // 摄像头就绪标志
 let isProcessing = false;    // 处理锁，防止旧款手机 CPU 过载
+let cameraFrameCount = 0;   // 摄像头输出帧计数
+let lastProcessedTime = 0;   // 上次 AI 处理完成时间
 let calibPoints = [
     { x: 0.5, y: 0.5 }, { x: 0.2, y: 0.2 }, { x: 0.8, y: 0.2 },
     { x: 0.8, y: 0.8 }, { x: 0.2, y: 0.8 }, { x: 0.5, y: 0.2 },
@@ -145,13 +147,24 @@ async function initMediaPipe() {
 
         camera = new Camera(videoElement, {
             onFrame: async () => {
-                if (isProcessing) return; // 如果上一帧还没跑完，跳过这一帧
+                cameraFrameCount++;
+                if (isProcessing) return; 
+                
                 isProcessing = true;
-                faceMesh.send({ image: videoElement });
+                // 加上安全网：如果 AI 引擎 1 秒内没响应，强制释放锁，防止卡死
+                const safetyNet = setTimeout(() => { isProcessing = false; }, 1000);
+                
+                try {
+                    await faceMesh.send({ image: videoElement });
+                } catch (err) {
+                    console.warn("AI Send Error:", err);
+                    isProcessing = false;
+                }
+                clearTimeout(safetyNet);
             },
             width: 640,
             height: 480,
-            facingMode: 'user' // 强制指定前置摄像头，增加 iOS 稳定性
+            facingMode: 'user'
         });
 
         await camera.start();
@@ -870,7 +883,7 @@ function loop() {
         } else if (lastGaze.ratio !== undefined) {
             updateStatus(`🔴 未锁定: 比例 ${lastGaze.ratio.toFixed(2)} < 0.12`);
         } else {
-            updateStatus(`⚪️ 正在寻找面部... (收到帧: ${frameCount})`);
+            updateStatus(`⚪️ 正在寻找面部... (摄:${cameraFrameCount} | AI:${frameCount})`);
         }
         requestAnimationFrame(loop);
     }
