@@ -60,6 +60,7 @@ let calibLimits = { x_min: 0, x_max: 1, x_center: 0.5 };
 let calibData = [];
 let gazePath = []; // 用于实时绘制轨迹
 const MAX_GAZE_PATH = 20; // 轨迹保留帧数
+let frameCount = 0; // 帧计数器，确认算法是否正在运行
 let calibPoints = [
     { x: 0.5, y: 0.5 }, { x: 0.2, y: 0.2 }, { x: 0.8, y: 0.2 },
     { x: 0.8, y: 0.8 }, { x: 0.2, y: 0.8 }, { x: 0.5, y: 0.2 },
@@ -167,6 +168,7 @@ async function initMediaPipe() {
 }
 
 function onResults(results) {
+    frameCount++; // 每次收到回调都计数
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const lms = results.multiFaceLandmarks[0];
 
@@ -772,8 +774,10 @@ function loop() {
             // 新增面部检测状态反馈
             if (lastGaze.valid) {
                 drawText("✅ 面部已锁定", canvas.width / 2, 50, 18, "#00ff00");
+            } else if (lastGaze.ratio !== undefined) {
+                drawText(`⚠️ 眼睛未睁大 (比例:${lastGaze.ratio.toFixed(2)})`, canvas.width / 2, 50, 18, "#ffaa00");
             } else {
-                drawText("❌ 未检测到面部", canvas.width / 2, 50, 18, "#ff0000");
+                drawText("❌ 未检测到面部 (请正对镜头)", canvas.width / 2, 50, 18, "#ff0000");
             }
             break;
 
@@ -829,9 +833,9 @@ function loop() {
         if (lastGaze.valid) {
             updateStatus(`🟢 检测到面部 (比例: ${lastGaze.ratio.toFixed(2)})`);
         } else if (lastGaze.ratio !== undefined) {
-            updateStatus(`🔴 未锁定: 比例 ${lastGaze.ratio.toFixed(2)} < 0.14`);
+            updateStatus(`🔴 未锁定: 比例 ${lastGaze.ratio.toFixed(2)} < 0.12`);
         } else {
-            updateStatus("⚪️ 正在寻找面部...");
+            updateStatus(`⚪️ 正在寻找面部... (收到帧: ${frameCount})`);
         }
         requestAnimationFrame(loop);
     }
