@@ -183,7 +183,7 @@ function onResults(results) {
         const v_dist = Math.hypot(lms[159].x - lms[145].x, lms[159].y - lms[145].y);
         const h_dist = Math.hypot(lms[133].x - lms[33].x, lms[133].y - lms[33].y);
         const ratio = v_dist / (h_dist + 1e-6);
-        const valid = ratio > 0.14 ? 1 : 0;
+        const valid = ratio > 0.12 ? 1 : 0; // 降低阈值，提高兼容性（原为0.14）
 
         // 2. 映射 X 计算 (lx, rx)
         const h_dist_lx = Math.hypot(lms[133].x - lms[33].x, lms[133].y - lms[33].y); // 使用水平总宽作为参考
