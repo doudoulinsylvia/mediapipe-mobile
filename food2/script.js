@@ -66,6 +66,7 @@ const MAX_GAZE_PATH = 20; // 轨迹保留帧数
 let frameCount = 0; // 帧计数器，确认算法是否正在运行
 let isFaceMeshReady = false; // AI 引擎就绪标志
 let isCameraReady = false;   // 摄像头就绪标志
+let isProcessing = false;    // 处理锁，防止旧款手机 CPU 过载
 let calibPoints = [
     { x: 0.5, y: 0.5 }, { x: 0.2, y: 0.2 }, { x: 0.8, y: 0.2 },
     { x: 0.8, y: 0.8 }, { x: 0.2, y: 0.8 }, { x: 0.5, y: 0.2 },
@@ -144,11 +145,13 @@ async function initMediaPipe() {
 
         camera = new Camera(videoElement, {
             onFrame: async () => {
-                // 去掉 await，让摄像头不在等待 AI 结果的情况下全速运行
+                if (isProcessing) return; // 如果上一帧还没跑完，跳过这一帧
+                isProcessing = true;
                 faceMesh.send({ image: videoElement });
             },
             width: 640,
-            height: 480
+            height: 480,
+            facingMode: 'user' // 强制指定前置摄像头，增加 iOS 稳定性
         });
 
         await camera.start();
@@ -178,6 +181,7 @@ async function initMediaPipe() {
 
 function onResults(results) {
     frameCount++; // 每次收到回调都计数
+    isProcessing = false; // 释放锁，允许处理下一帧
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const lms = results.multiFaceLandmarks[0];
 
