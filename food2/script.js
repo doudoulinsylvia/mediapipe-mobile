@@ -1,4 +1,6 @@
 const videoElement = document.getElementById('input_video');
+const hiddenCanvas = document.createElement('canvas'); // v9.2.0: 用于净化视频流的隐藏画布
+const hiddenCtx = hiddenCanvas.getContext('2d', { willReadFrequently: true });
 const canvas = document.getElementById('experiment-canvas');
 const ctx = canvas.getContext('2d');
 const statusElement = document.getElementById('status');
@@ -203,11 +205,21 @@ async function initMediaPipe() {
                 if (isProcessing) return; 
                 
                 isProcessing = true;
-                // 加上安全网：如果 AI 引擎卡死，5 秒后强制释放锁 (针对旧款手机放宽限制)
+                // 加上安全网：如果 AI 引擎卡死，5 秒后强制释放锁
                 const safetyNet = setTimeout(() => { isProcessing = false; }, 5000);
                 
                 try {
-                    await faceMesh.send({ image: videoElement });
+                    // v9.2.0 终极杀招: Canvas Bridge (净化硬件加速流)
+                    // 同步隐藏画布的尺寸
+                    if (hiddenCanvas.width !== videoElement.videoWidth) {
+                        hiddenCanvas.width = videoElement.videoWidth;
+                        hiddenCanvas.height = videoElement.videoHeight;
+                    }
+                    // 将复杂的视频流画成一张普普通通的 2D 贴图
+                    hiddenCtx.drawImage(videoElement, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+                    
+                    // 将这张纯净的 2D 贴图喂给 AI，避免触发 iOS 的 WebGL 硬件加速 Bug
+                    await faceMesh.send({ image: hiddenCanvas });
                 } catch (err) {
                     console.warn("AI Send Error:", err);
                     isProcessing = false;
