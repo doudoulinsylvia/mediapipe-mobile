@@ -906,20 +906,9 @@ function loop() {
 }
 
 function drawGazeVisualization() {
-    if (!lastGaze.valid || gazePath.length < 2) return;
+    if (!lastGaze.valid) return;
 
-    // 1. 绘制轨迹线
-    ctx.beginPath();
-    ctx.strokeStyle = 'rgba(0, 242, 254, 0.4)'; // 半透明青色
-    ctx.lineWidth = 4;
-    ctx.lineJoin = 'round';
-    ctx.moveTo(gazePath[0].x, gazePath[0].y);
-    for (let i = 1; i < gazePath.length; i++) {
-        ctx.lineTo(gazePath[i].x, gazePath[i].y);
-    }
-    ctx.stroke();
-
-    // 2. 绘制当前注视点圆圈
+    // 只保留绘制当前注视点圆圈
     ctx.beginPath();
     ctx.fillStyle = 'rgba(0, 242, 254, 0.8)';
     ctx.arc(lastGaze.x, lastGaze.y, 12, 0, Math.PI * 2);
