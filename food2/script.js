@@ -184,7 +184,8 @@ async function initMediaPipe() {
 
         faceMesh = new FaceMesh({
             locateFile: (file) => {
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/${file}`;
+                // v9.4.0 配合 CDN 通道，不锁定具体微小版本号以避免哈希冲突导致 worker exception
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
             }
         });
 
@@ -212,6 +213,13 @@ async function initMediaPipe() {
                 const safetyNet = setTimeout(() => { isProcessing = false; }, 30000);
                 
                 try {
+                    // v9.4.0 拦截 0x0 毒苹果帧：旧设备启动摄像头的瞬间尺寸还未获取
+                    if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
+                        clearTimeout(safetyNet);
+                        isProcessing = false;
+                        return; // 放弃此幽灵帧，直接退出
+                    }
+
                     // v9.2.0 终极杀招: Canvas Bridge (净化硬件加速流)
                     // 同步隐藏画布的尺寸
                     if (hiddenCanvas.width !== videoElement.videoWidth) {
