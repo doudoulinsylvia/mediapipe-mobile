@@ -148,6 +148,12 @@ async function initMediaPipe() {
         });
 
         await camera.start();
+
+        updateStatus("⏳ 正在唤醒 AI 引擎 (首次加载较慢)...");
+        // v9.9.0 强制显示 AI 初始化超时状态
+        const initSafetyNet = new Promise((_, reject) => setTimeout(() => reject(new Error("AI WebWorker 引擎初始化超时")), 30000));
+        await Promise.race([faceMesh.initialize(), initSafetyNet]);
+
         clearTimeout(loaderWatchdog);
 
         updateStatus("✅ 环境与图片准备完毕，请录入信息");
