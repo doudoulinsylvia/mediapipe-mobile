@@ -148,7 +148,8 @@ async function initMediaPipe() {
                 }
             },
             width: 640,
-            height: 480
+            height: 480,
+            facingMode: 'user'
         });
 
         await camera.start();
@@ -205,7 +206,7 @@ function onResults(results) {
         const v_dist = Math.hypot(lms[159].x - lms[145].x, lms[159].y - lms[145].y);
         const h_dist = Math.hypot(lms[133].x - lms[33].x, lms[133].y - lms[33].y);
         const ratio = v_dist / (h_dist + 1e-6);
-        const valid = ratio > 0.14 ? 1 : 0;
+        const valid = ratio > 0.11 ? 1 : 0; // lowered from 0.14 to 0.11 for better eye detection
 
         // 2. 映射 X 计算 (lx, rx)
         const h_dist_lx = Math.hypot(lms[133].x - lms[33].x, lms[133].y - lms[33].y); // 使用水平总宽作为参考
@@ -843,7 +844,7 @@ function loop() {
         if (lastGaze.valid) {
             updateStatus(`🟢 检测到面部 (比例: ${lastGaze.ratio.toFixed(2)})`);
         } else if (lastGaze.ratio !== undefined) {
-            updateStatus(`🔴 未锁定: 比例 ${lastGaze.ratio.toFixed(2)} < 0.14`);
+            updateStatus(`🔴 未锁定: 比例 ${lastGaze.ratio.toFixed(2)} < 0.11`);
         } else {
             updateStatus(`⚪️ 正在寻找面部... (摄:${cameraFrameCount} | AI:${frameCount})`);
         }
