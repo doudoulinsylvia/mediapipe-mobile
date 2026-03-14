@@ -33,12 +33,10 @@ body {
     position: fixed;
     top: 0;
     left: 0;
-    width: 120px;
-    height: 160px;
-    opacity: 0.8;
-    z-index: 9999;
-    border: 2px solid white;
-    border-radius: 8px;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
 }
 
 #experiment-canvas {
