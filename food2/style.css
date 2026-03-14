@@ -33,9 +33,9 @@ body {
     position: fixed;
     top: 0;
     left: 0;
-    width: 10px;
-    height: 10px;
-    opacity: 0.02;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
     pointer-events: none;
 }
 
