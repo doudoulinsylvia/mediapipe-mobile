@@ -83,21 +83,27 @@ function updateStatus(msg) {
 // ==========================================================================
 // 1. 初始化 MediaPipe
 // ==========================================================================
-function preloadImages(imageIds) {
-    return Promise.all(imageIds.map(id => {
-        return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => {
-                loadedImages[id] = img;
-                resolve();
-            };
-            img.onerror = () => {
-                console.warn(`无法加载图片 ${id}.jpg，将使用空白框代替`);
-                resolve(); // 忽略错误继续加载
-            };
-            img.src = `images/${id}.jpg`;
-        });
-    }));
+async function preloadImages(imageIds) {
+    const CHUNK_SIZE = 10;
+    for (let i = 0; i < imageIds.length; i += CHUNK_SIZE) {
+        const chunk = imageIds.slice(i, i + CHUNK_SIZE);
+        updateStatus(`[加载中] 正在预载图片资源: ${Math.min(i + CHUNK_SIZE, imageIds.length)}/${imageIds.length}...`);
+        
+        await Promise.all(chunk.map(id => {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    loadedImages[id] = img;
+                    resolve();
+                };
+                img.onerror = () => {
+                    console.warn(`无法加载图片 ${id}.jpg，将使用空白框代替`);
+                    resolve(); // 忽略错误继续加载
+                };
+                img.src = `images/${id}.jpg`;
+            });
+        }));
+    }
 }
 
 async function initMediaPipe() {
@@ -115,10 +121,8 @@ async function initMediaPipe() {
     }, 20000);
 
     try {
-        await preloadImages(selectedIds);
-        ratingImages = selectedIds;
-        trials = []; // 将在评分阶段结束后自动生成
-
+        // v9.10.0 核心改动：把巨无霸 AI 引擎和摄像头的启动优先级提到最高，霸占空闲连续内存，防止 OOM
+        updateStatus("⏳ [1/2] 正在向系统申请底层 AI 引擎内存，请保持页面在最前...");
         faceMesh = new FaceMesh({
             locateFile: (file) => {
                 return `https://unpkg.com/@mediapipe/face_mesh/${file}`;
@@ -149,10 +153,16 @@ async function initMediaPipe() {
 
         await camera.start();
 
-        updateStatus("⏳ 正在唤醒 AI 引擎 (首次加载较慢)...");
+        updateStatus("⏳ [1/2] 正在唤醒 AI 引擎核心节点 (首次加载较慢)...");
         // v9.9.0 强制显示 AI 初始化超时状态
         const initSafetyNet = new Promise((_, reject) => setTimeout(() => reject(new Error("AI WebWorker 引擎初始化超时")), 30000));
         await Promise.race([faceMesh.initialize(), initSafetyNet]);
+
+        // 第二步：开始细水长流地慢慢下载 200 张图片，防止同时 200 个并发阻塞网络和炸碎手机内存
+        updateStatus("⏳ [2/2] AI 初始化成功，开始下载 200 张高清实验图...");
+        ratingImages = selectedIds;
+        trials = []; // 将在评分阶段结束后自动生成
+        await preloadImages(selectedIds);
 
         clearTimeout(loaderWatchdog);
 
