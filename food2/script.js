@@ -180,8 +180,8 @@ async function initMediaPipe() {
 
         faceMesh = new FaceMesh({
             locateFile: (file) => {
-                // v9.4.0 配合 CDN 通道，不锁定具体微小版本号以避免哈希冲突导致 worker exception
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+                // v9.6.0 强制锁定已知稳定的 iOS 兼容哈希版本，防止 CDN 漂移
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/${file}`;
             }
         });
 
