@@ -1,6 +1,4 @@
 const videoElement = document.getElementById('input_video');
-const hiddenCanvas = document.createElement('canvas'); // v9.2.0: 用于净化视频流的隐藏画布
-const hiddenCtx = hiddenCanvas.getContext('2d', { willReadFrequently: true });
 const canvas = document.getElementById('experiment-canvas');
 const ctx = canvas.getContext('2d');
 const statusElement = document.getElementById('status');
@@ -112,9 +110,6 @@ const MAX_GAZE_PATH = 10; // 轨迹保留帧数 (从 20 缩短至 10，减少视
 let frameCount = 0; // 帧计数器，确认算法是否正在运行
 let isFaceMeshReady = false; // AI 引擎就绪标志
 let isCameraReady = false;   // 摄像头就绪标志
-let isProcessing = false;    // 处理锁，防止旧款手机 CPU 过载
-let cameraFrameCount = 0;   // 摄像头输出帧计数
-let lastProcessedTime = 0;   // 上次 AI 处理完成时间
 let calibPoints = [
     { x: 0.5, y: 0.5 }, { x: 0.2, y: 0.2 }, { x: 0.8, y: 0.2 },
     { x: 0.8, y: 0.8 }, { x: 0.2, y: 0.8 }, { x: 0.5, y: 0.2 },
@@ -191,11 +186,9 @@ async function initMediaPipe() {
 
         faceMesh.setOptions({
             maxNumFaces: 1,
-            refineLandmarks: true, // 保留虹膜跟踪 (眼动必需)
+            refineLandmarks: true,
             minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5,
-            selfieMode: false, // v9.3.0 彻底禁用不必要的镜像翻转举阵运算
-            enableFaceGeometry: false // v9.3.0 最核心优化：彻底禁用 3D 拓扑结构构建，释放爆炸级别的 WebGL 算力占用
+            minTrackingConfidence: 0.5
         });
 
         faceMesh.onResults(onResults);
@@ -204,38 +197,11 @@ async function initMediaPipe() {
 
         camera = new Camera(videoElement, {
             onFrame: async () => {
-                cameraFrameCount++;
-                if (isProcessing) return; 
-                
-                isProcessing = true;
-                // v9.3.0 延长耐心：如果 AI 引擎卡死，30 秒后强制释放锁
-                // 旧款苹果手机的第一帧有时需要长达 10-15 秒的时间编译着色器
-                const safetyNet = setTimeout(() => { isProcessing = false; }, 30000);
-                
                 try {
-                    // v9.4.0 拦截 0x0 毒苹果帧：旧设备启动摄像头的瞬间尺寸还未获取
-                    if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
-                        clearTimeout(safetyNet);
-                        isProcessing = false;
-                        return; // 放弃此幽灵帧，直接退出
-                    }
-
-                    // v9.2.0 终极杀招: Canvas Bridge (净化硬件加速流)
-                    // 同步隐藏画布的尺寸
-                    if (hiddenCanvas.width !== videoElement.videoWidth) {
-                        hiddenCanvas.width = videoElement.videoWidth;
-                        hiddenCanvas.height = videoElement.videoHeight;
-                    }
-                    // 将复杂的视频流画成一张普普通通的 2D 贴图
-                    hiddenCtx.drawImage(videoElement, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
-                    
-                    // 将这张纯净的 2D 贴图喂给 AI，避免触发 iOS 的 WebGL 硬件加速 Bug
-                    await faceMesh.send({ image: hiddenCanvas });
+                    await faceMesh.send({ image: videoElement });
                 } catch (err) {
                     console.warn("AI Send Error:", err);
-                    isProcessing = false;
                 }
-                clearTimeout(safetyNet);
             },
             width: 640,
             height: 480,
@@ -273,7 +239,6 @@ async function initMediaPipe() {
 
 function onResults(results) {
     frameCount++; // 每次收到回调都计数
-    isProcessing = false; // 释放锁，允许处理下一帧
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const lms = results.multiFaceLandmarks[0];
 
