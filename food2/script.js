@@ -7,50 +7,6 @@ const registrationOverlay = document.getElementById('registration-overlay');
 const startBtn = document.getElementById('start-btn');
 const wechatPrompt = document.getElementById('wechat-prompt');
 
-// --------------------------------------------------------------------------
-// 全局异常捕获 (移动端调试利器)
-// --------------------------------------------------------------------------
-window.addEventListener('error', function(event) {
-    console.error("Global Error (Error Event):", event.error || event.message);
-    const msg = event.error ? event.error.message : event.message;
-    showCriticalError(msg);
-});
-
-window.addEventListener('unhandledrejection', function(event) {
-    console.error("Global Error (Unhandled Rejection):", event.reason);
-    const msg = event.reason ? (event.reason.message || event.reason) : "Unknown Promise Rejection";
-    showCriticalError(msg);
-});
-
-function showCriticalError(msg) {
-    // 隐藏加载层
-    const loader = document.getElementById('loading-overlay');
-    if (loader) loader.style.display = 'none';
-
-    // 创建或更新错误提示 UI
-    let errBanner = document.getElementById('critical-error-banner');
-    if (!errBanner) {
-        errBanner = document.createElement('div');
-        errBanner.id = 'critical-error-banner';
-        errBanner.style.position = 'fixed';
-        errBanner.style.top = '0';
-        errBanner.style.left = '0';
-        errBanner.style.width = '100vw';
-        errBanner.style.backgroundColor = 'rgba(255, 0, 0, 0.9)';
-        errBanner.style.color = 'white';
-        errBanner.style.padding = '15px';
-        errBanner.style.zIndex = '9999';
-        errBanner.style.fontWeight = 'bold';
-        errBanner.style.fontSize = '14px';
-        errBanner.style.wordWrap = 'break-word';
-        document.body.appendChild(errBanner);
-    }
-    errBanner.innerHTML = `⚠️ <br>System Error:<br>${msg}<br><br><small>请截图发给研究员并刷新页面</small>`;
-    
-    // 尝试更新状态栏
-    if (statusElement) statusElement.innerHTML = "❌ 系统崩溃";
-}
-
 // 实验参数
 const TRIAL_LIMIT = 150; // 正式实验试次数
 const TOTAL_IMITS_COUNT = 200; // 总图片数
@@ -100,17 +56,10 @@ let trialStartTime = 0;
 // MediaPipe 状态
 let faceMesh;
 let camera;
-let calibLimits = { 
-    x_min: 0, x_max: 1, x_center: 0.5,
-    y_min: 0, y_max: 1, y_center: 0.5 
-};
-let calibData = []; // 存储 {x, y} 对象
-let gazePath = []; // 用于实时绘制轨迹
-const MAX_GAZE_PATH = 10; // 轨迹保留帧数 (从 20 缩短至 10，减少视觉拖沓感)
-let frameCount = 0; // 帧计数器，确认算法是否正在运行
-let isFaceMeshReady = false; // AI 引擎就绪标志
-let isCameraReady = false;   // 摄像头就绪标志
-let cameraFrameCount = 0;    // 摄像头输出帧计数
+let calibLimits = { x_min: 0, x_max: 1, x_center: 0.5 };
+let calibData = [];
+let frameCount = 0;
+let cameraFrameCount = 0;
 let calibPoints = [
     { x: 0.5, y: 0.5 }, { x: 0.2, y: 0.2 }, { x: 0.8, y: 0.2 },
     { x: 0.8, y: 0.8 }, { x: 0.2, y: 0.8 }, { x: 0.5, y: 0.2 },
@@ -152,14 +101,7 @@ function preloadImages(imageIds) {
 }
 
 async function initMediaPipe() {
-    // 助手函数：同时更新状态栏和中央加载文字
-    function updateLoadingStep(msg) {
-        updateStatus(msg);
-        const lgText = document.getElementById('loading-text');
-        if (lgText) lgText.innerHTML = msg;
-    }
-
-    updateLoadingStep("[0/4] 正在连接服务器准备图片序列...");
+    updateStatus("正在载入实验环境与图片资源，请稍候...");
 
     // 根据需求，评分阶段选取 200 张图片
     const reqCount = 200;
@@ -173,7 +115,6 @@ async function initMediaPipe() {
     }, 20000);
 
     try {
-        updateLoadingStep("[1/4] 网络请求：正在下载实验所需的高清图片...");
         await preloadImages(selectedIds);
         ratingImages = selectedIds;
         trials = []; // 将在评分阶段结束后自动生成
@@ -192,8 +133,6 @@ async function initMediaPipe() {
         });
 
         faceMesh.onResults(onResults);
-        isFaceMeshReady = true;
-        updateLoadingStep("[2/4] 环境就绪：正在拉起 AI 引擎并请求摄像头权限...");
 
         camera = new Camera(videoElement, {
             onFrame: async () => {
@@ -201,22 +140,17 @@ async function initMediaPipe() {
                 try {
                     await faceMesh.send({ image: videoElement });
                 } catch (err) {
-                    console.warn("AI Send Error:", err);
+                    console.warn(err);
                 }
             },
             width: 640,
             height: 480
         });
 
-        updateLoadingStep("[3/4] 授权通过：正在尝试启动物理摄像头硬件...");
         await camera.start();
-        isCameraReady = true;
         clearTimeout(loaderWatchdog);
 
-        updateLoadingStep("[4/4] ✅ 所有系统正常，即将进入实验...");
-        // 给用户 0.5 秒时间看清最后的成功提示
-        await new Promise(r => setTimeout(r, 500));
-
+        updateStatus("✅ 环境与图片准备完毕，请录入信息");
         document.getElementById('loading-overlay').style.display = 'none';
         document.getElementById('registration-overlay').style.display = 'block';
         currentState = State.SUBJECT_INFO;
@@ -238,7 +172,7 @@ async function initMediaPipe() {
 }
 
 function onResults(results) {
-    frameCount++; // 每次收到回调都计数
+    frameCount++;
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const lms = results.multiFaceLandmarks[0];
 
@@ -255,7 +189,7 @@ function onResults(results) {
         const v_dist = Math.hypot(lms[159].x - lms[145].x, lms[159].y - lms[145].y);
         const h_dist = Math.hypot(lms[133].x - lms[33].x, lms[133].y - lms[33].y);
         const ratio = v_dist / (h_dist + 1e-6);
-        const valid = ratio > 0.12 ? 1 : 0; // 降低阈值，提高兼容性（原为0.14）
+        const valid = ratio > 0.14 ? 1 : 0;
 
         // 2. 映射 X 计算 (lx, rx)
         const h_dist_lx = Math.hypot(lms[133].x - lms[33].x, lms[133].y - lms[33].y); // 使用水平总宽作为参考
@@ -290,27 +224,11 @@ function onResults(results) {
         lastGaze.valid = !!valid;
         lastGaze.ratio = ratio; // 新增：保存比例用于调试
 
-        const targetX = mapX(raw_x);
-        const targetY = mapY(raw_y);
-
-        // --- v9.0.0 动态平滑算法 (防止乱跳并保持灵敏) ---
-        // 1. 计算出当前位置与目标新位置的物理距离（代表眼球移动速度）
-        const dx = targetX - lastGaze.x;
-        const dy = targetY - lastGaze.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-
-        // 2. 动态调节系数：距离越小，说明只是眼球微颤或像素噪点，需要极强平滑(alpha变小)；距离越大，说明你真的看别处了，直接跳过去(alpha变大)
-        let alpha = 0.1; // 默认极低敏感度（稳定抗抖）
-        if (dist > 50) { // 如果移动超过 50 像素（大扫视）
-            alpha = 0.9; // 瞬间释放响应速度
-        } else if (dist > 10) { // 中等范围移动
-            // 在 10 到 50 像素之间，按比例平滑过渡
-            alpha = 0.1 + (0.8 * ((dist - 10) / 40.0));
-        }
-        
-        // 3. 应用动态系数进行更新
-        lastGaze.x = lastGaze.x * (1 - alpha) + targetX * alpha;
-        lastGaze.y = lastGaze.y * (1 - alpha) + targetY * alpha;
+        // 映射到屏幕坐标
+        lastGaze.x = mapX(raw_x);
+        // 简单映射 Y：瞳孔在眼眶内的相对位置（一般在 0.3-0.7 之间）映射到 canvas.height
+        // 这个映射不是绝对精确，旨在反映上/下翻眼的趋势
+        lastGaze.y = Math.min(Math.max((raw_y - 0.2) / 0.6, 0), 1) * canvas.height;
 
         // 记录 468 个点 (关键改进)
         // 为了 CSV 效率，将其存为特定格式的字符串
@@ -331,14 +249,6 @@ function onResults(results) {
             currentState === State.PHASE1_END) {
             recordGazeFrame();
         }
-
-        // 更新轨迹路径
-        if (lastGaze.valid) {
-            gazePath.push({ x: lastGaze.x, y: lastGaze.y });
-            if (gazePath.length > MAX_GAZE_PATH) gazePath.shift();
-        } else {
-            gazePath = []; // 失去追踪时清空
-        }
     } else {
         lastGaze.valid = false;
         lastGaze.landmarks = null;
@@ -349,22 +259,11 @@ function onResults(results) {
 function mapX(rx) {
     const { x_min, x_max, x_center } = calibLimits;
     if (rx < x_center) {
-        let norm = (rx - x_min) / (x_center - x_min + 1e-6);
+        let norm = (rx - x_min) / (x_center - x_min);
         return Math.max(0, norm) * (canvas.width / 2);
     } else {
-        let norm = (rx - x_center) / (x_max - x_center + 1e-6);
+        let norm = (rx - x_center) / (x_max - x_center);
         return (canvas.width / 2) + Math.min(1, norm) * (canvas.width / 2);
-    }
-}
-
-function mapY(ry) {
-    const { y_min, y_max, y_center } = calibLimits;
-    if (ry < y_center) {
-        let norm = (ry - y_min) / (y_center - y_min + 1e-6);
-        return Math.max(0, norm) * (canvas.height / 2);
-    } else {
-        let norm = (ry - y_center) / (y_max - y_center + 1e-6);
-        return (canvas.height / 2) + Math.min(1, norm) * (canvas.height / 2);
     }
 }
 
@@ -587,7 +486,7 @@ function handleScreenTap(clientX, clientY) {
 
     if (currentState === State.CALIBRATION) {
         if (lastGaze.valid) {
-            calibData.push({ x: lastGaze.raw_x, y: lastGaze.raw_y });
+            calibData.push(lastGaze.raw_x);
             currentCalibIndex++;
             updateStatus(`校准点 ${currentCalibIndex}/9 已采集`);
             if (currentCalibIndex >= calibPoints.length) {
@@ -615,18 +514,10 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 
 function finishCalibration() {
-    const resX = calibData.map(d => d.x);
-    const resY = calibData.map(d => d.y);
-    
-    // 水平校准 (基于中心点和外显范围)
-    calibLimits.x_center = resX[0]; 
-    calibLimits.x_min = Math.min(...resX) - (resX[0] - Math.min(...resX)) * 0.4;
-    calibLimits.x_max = Math.max(...resX) + (Math.max(...resX) - resX[0]) * 0.4;
-
-    // 垂直校准 (新增：自动计算上下界)
-    calibLimits.y_center = resY[0];
-    calibLimits.y_min = Math.min(...resY) - (resY[0] - Math.min(...resY)) * 0.4;
-    calibLimits.y_max = Math.max(...resY) + (Math.max(...resY) - resY[0]) * 0.4;
+    const res = calibData;
+    calibLimits.x_center = res[0]; // 第一个是中心点
+    calibLimits.x_min = Math.min(...res) - (res[0] - Math.min(...res)) * 0.4;
+    calibLimits.x_max = Math.max(...res) + (Math.max(...res) - res[0]) * 0.4;
 
     // 判断是否已经完成了评分阶段
     if (currentRatingIndex >= ratingImages.length) {
@@ -879,10 +770,8 @@ function loop() {
             // 新增面部检测状态反馈
             if (lastGaze.valid) {
                 drawText("✅ 面部已锁定", canvas.width / 2, 50, 18, "#00ff00");
-            } else if (lastGaze.ratio !== undefined) {
-                drawText(`⚠️ 眼睛未睁大 (比例:${lastGaze.ratio.toFixed(2)})`, canvas.width / 2, 50, 18, "#ffaa00");
             } else {
-                drawText("❌ 未检测到面部 (请正对镜头)", canvas.width / 2, 50, 18, "#ff0000");
+                drawText("❌ 未检测到面部", canvas.width / 2, 50, 18, "#ff0000");
             }
             break;
 
@@ -938,7 +827,7 @@ function loop() {
         if (lastGaze.valid) {
             updateStatus(`🟢 检测到面部 (比例: ${lastGaze.ratio.toFixed(2)})`);
         } else if (lastGaze.ratio !== undefined) {
-            updateStatus(`🔴 未锁定: 比例 ${lastGaze.ratio.toFixed(2)} < 0.12`);
+            updateStatus(`🔴 未锁定: 比例 ${lastGaze.ratio.toFixed(2)} < 0.14`);
         } else {
             updateStatus(`⚪️ 正在寻找面部... (摄:${cameraFrameCount} | AI:${frameCount})`);
         }
@@ -953,25 +842,6 @@ function loop() {
         ctx.arc(lastTouchFeedback.x, lastTouchFeedback.y, 25, 0, Math.PI * 2);
         ctx.stroke();
     }
-
-    // --- 新增：实时眼动注视点和轨迹 ---
-    drawGazeVisualization();
-}
-
-function drawGazeVisualization() {
-    if (!lastGaze.valid) return;
-
-    // 只保留绘制当前注视点圆圈
-    ctx.beginPath();
-    ctx.fillStyle = 'rgba(0, 242, 254, 0.8)';
-    ctx.arc(lastGaze.x, lastGaze.y, 12, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // 加上一个白边中心点
-    ctx.beginPath();
-    ctx.fillStyle = '#fff';
-    ctx.arc(lastGaze.x, lastGaze.y, 4, 0, Math.PI * 2);
-    ctx.fill();
 }
 
 async function exportData() {
