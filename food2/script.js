@@ -180,8 +180,7 @@ async function initMediaPipe() {
 
         faceMesh = new FaceMesh({
             locateFile: (file) => {
-                // v9.6.0 强制锁定已知稳定的 iOS 兼容哈希版本，防止 CDN 漂移
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/${file}`;
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/${file}`;
             }
         });
 
@@ -206,8 +205,7 @@ async function initMediaPipe() {
                 }
             },
             width: 640,
-            height: 480,
-            facingMode: 'user'
+            height: 480
         });
 
         updateLoadingStep("[3/4] 授权通过：正在尝试启动物理摄像头硬件...");
