@@ -110,6 +110,7 @@ const MAX_GAZE_PATH = 10; // 轨迹保留帧数 (从 20 缩短至 10，减少视
 let frameCount = 0; // 帧计数器，确认算法是否正在运行
 let isFaceMeshReady = false; // AI 引擎就绪标志
 let isCameraReady = false;   // 摄像头就绪标志
+let cameraFrameCount = 0;    // 摄像头输出帧计数
 let calibPoints = [
     { x: 0.5, y: 0.5 }, { x: 0.2, y: 0.2 }, { x: 0.8, y: 0.2 },
     { x: 0.8, y: 0.8 }, { x: 0.2, y: 0.8 }, { x: 0.5, y: 0.2 },
@@ -197,6 +198,7 @@ async function initMediaPipe() {
 
         camera = new Camera(videoElement, {
             onFrame: async () => {
+                cameraFrameCount++;
                 try {
                     await faceMesh.send({ image: videoElement });
                 } catch (err) {
