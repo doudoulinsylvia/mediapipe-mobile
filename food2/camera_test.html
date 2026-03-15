@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>摄像头诊断测试</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, sans-serif;
+      background: #1a1a2e;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+      gap: 16px;
+    }
+    h1 { font-size: 20px; margin-top: 20px; }
+    #status-box {
+      background: #16213e;
+      border-radius: 12px;
+      padding: 16px;
+      width: 100%;
+      max-width: 400px;
+      font-size: 14px;
+      line-height: 1.8;
+    }
+    .row { display: flex; justify-content: space-between; align-items: center; }
+    .label { color: #aaa; }
+    .val { font-weight: bold; }
+    .ok   { color: #4ade80; }
+    .fail { color: #f87171; }
+    .wait { color: #facc15; }
+    video {
+      width: 100%;
+      max-width: 400px;
+      border-radius: 12px;
+      border: 2px solid #333;
+      background: #000;
+    }
+    #log {
+      background: #0f0f1a;
+      border-radius: 8px;
+      padding: 10px;
+      width: 100%;
+      max-width: 400px;
+      font-size: 12px;
+      font-family: monospace;
+      color: #888;
+      max-height: 180px;
+      overflow-y: auto;
+    }
+    #log p { margin: 2px 0; }
+    #log p.ok { color: #4ade80; }
+    #log p.fail { color: #f87171; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+</head>
+<body>
+  <h1>📷 摄像头 + AI 诊断</h1>
+
+  <div id="status-box">
+    <div class="row"><span class="label">HTTPS 安全连接</span><span class="val" id="s-https">检测中...</span></div>
+    <div class="row"><span class="label">摄像头权限</span><span class="val" id="s-cam">等待...</span></div>
+    <div class="row"><span class="label">摄像头画面</span><span class="val" id="s-stream">等待...</span></div>
+    <div class="row"><span class="label">AI 引擎 (MediaPipe)</span><span class="val" id="s-ai">等待...</span></div>
+    <div class="row"><span class="label">面部识别结果</span><span class="val" id="s-face">等待...</span></div>
+    <div class="row"><span class="label">AI 帧数</span><span class="val" id="s-frames">0</span></div>
+  </div>
+
+  <video id="video" playsinline webkit-playsinline autoplay muted></video>
+
+  <div id="log"><p>--- 诊断日志 ---</p></div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    let frameCount = 0;
+
+    function log(msg, type = '') {
+      const p = document.createElement('p');
+      p.textContent = new Date().toLocaleTimeString() + ' ' + msg;
+      p.className = type;
+      $('log').appendChild(p);
+      $('log').scrollTop = $('log').scrollHeight;
+      console.log(msg);
+    }
+
+    function setStatus(id, text, cls) {
+      const el = $(id);
+      el.textContent = text;
+      el.className = 'val ' + cls;
+    }
+
+    // 1. HTTPS 检查
+    if (window.isSecureContext) {
+      setStatus('s-https', '✅ 安全 (HTTPS)', 'ok');
+      log('HTTPS OK', 'ok');
+    } else {
+      setStatus('s-https', '❌ 不安全 (HTTP)', 'fail');
+      log('❌ 不是 HTTPS！摄像头会被浏览器拒绝', 'fail');
+    }
+
+    async function run() {
+      // 2. 请求摄像头权限
+      log('正在请求前置摄像头权限...');
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: 640, height: 480 },
+          audio: false
+        });
+        setStatus('s-cam', '✅ 已授权', 'ok');
+        log('摄像头权限获取成功', 'ok');
+      } catch (e) {
+        setStatus('s-cam', '❌ ' + e.name, 'fail');
+        log('❌ 权限错误: ' + e.name + ' — ' + e.message, 'fail');
+        if (e.name === 'NotAllowedError') {
+          log('⚠️ 你曾拒绝了摄像头权限，请进入 Safari设置 → 该网站 → 相机 → 允许', 'fail');
+        }
+        return;
+      }
+
+      // 3. 播放视频流
+      const video = $('video');
+      video.srcObject = stream;
+      await video.play();
+      const track = stream.getVideoTracks()[0];
+      const settings = track.getSettings();
+      setStatus('s-stream', `✅ ${settings.width}×${settings.height}`, 'ok');
+      log(`摄像头画面: ${settings.width}×${settings.height} facingMode=${settings.facingMode}`, 'ok');
+
+      // 4. 初始化 MediaPipe
+      log('正在加载 AI 引擎 (MediaPipe FaceMesh)...');
+      setStatus('s-ai', '⏳ 加载中...', 'wait');
+      const faceMesh = new FaceMesh({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/${file}`
+      });
+      faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+
+      faceMesh.onResults((results) => {
+        frameCount++;
+        $('s-frames').textContent = frameCount;
+
+        if (frameCount === 1) {
+          setStatus('s-ai', '✅ AI 引擎运行中', 'ok');
+          log('AI 引擎首帧成功处理', 'ok');
+        }
+
+        if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+          setStatus('s-face', '✅ 识别到人脸！', 'ok');
+          if (frameCount <= 3) log('✅ 人脸识别成功！', 'ok');
+        } else {
+          setStatus('s-face', '❌ 未识别到面部', 'fail');
+          if (frameCount <= 5) log('⚠️ 人脸未被识别（注意光线和正对镜头）');
+        }
+      });
+
+      // 使用 Camera 工具
+      const camera = new Camera(video, {
+        onFrame: async () => {
+          await faceMesh.send({ image: video });
+        },
+        width: 640,
+        height: 480
+      });
+
+      try {
+        await camera.start();
+        log('Camera 工具启动成功', 'ok');
+      } catch (e) {
+        setStatus('s-ai', '❌ 启动失败: ' + e.name, 'fail');
+        log('❌ Camera.start 错误: ' + e.name, 'fail');
+      }
+    }
+
+    run();
+  </script>
+</body>
+</html>
