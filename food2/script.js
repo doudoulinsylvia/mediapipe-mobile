@@ -216,11 +216,9 @@ function onResults(results) {
         lastGaze.valid = !!valid;
         lastGaze.ratio = ratio; // 新增：保存比例用于调试
 
-        // 映射到屏幕坐标
+        // 映射到屏幕坐标（X: 经过9点校准；Y: 经过9点校准）
         lastGaze.x = mapX(raw_x);
-        // 简单映射 Y：瞳孔在眼眶内的相对位置（一般在 0.3-0.7 之间）映射到 canvas.height
-        // 这个映射不是绝对精确，旨在反映上/下翻眼的趋势
-        lastGaze.y = Math.min(Math.max((raw_y - 0.2) / 0.6, 0), 1) * canvas.height;
+        lastGaze.y = mapY(raw_y);
 
         // 记录 468 个点 (关键改进)
         // 为了 CSV 效率，将其存为特定格式的字符串
@@ -251,11 +249,26 @@ function onResults(results) {
 function mapX(rx) {
     const { x_min, x_max, x_center } = calibLimits;
     if (rx < x_center) {
-        let norm = (rx - x_min) / (x_center - x_min);
+        let norm = (rx - x_min) / (x_center - x_min + 1e-6);
         return Math.max(0, norm) * (canvas.width / 2);
     } else {
-        let norm = (rx - x_center) / (x_max - x_center);
+        let norm = (rx - x_center) / (x_max - x_center + 1e-6);
         return (canvas.width / 2) + Math.min(1, norm) * (canvas.width / 2);
+    }
+}
+
+function mapY(ry) {
+    const { y_min, y_max, y_center } = calibLimits;
+    if (!y_center) {
+        // 校准前的保守默认值，防止未校准时崩溃
+        return Math.min(Math.max((ry - 0.2) / 0.6, 0), 1) * canvas.height;
+    }
+    if (ry < y_center) {
+        let norm = (ry - y_min) / (y_center - y_min + 1e-6);
+        return Math.max(0, norm) * (canvas.height / 2);
+    } else {
+        let norm = (ry - y_center) / (y_max - y_center + 1e-6);
+        return (canvas.height / 2) + Math.min(1, norm) * (canvas.height / 2);
     }
 }
 
@@ -478,7 +491,7 @@ function handleScreenTap(clientX, clientY) {
 
     if (currentState === State.CALIBRATION) {
         if (lastGaze.valid) {
-            calibData.push(lastGaze.raw_x);
+            calibData.push({ x: lastGaze.raw_x, y: lastGaze.raw_y });
             currentCalibIndex++;
             updateStatus(`校准点 ${currentCalibIndex}/9 已采集`);
             if (currentCalibIndex >= calibPoints.length) {
@@ -506,10 +519,18 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 
 function finishCalibration() {
-    const res = calibData;
-    calibLimits.x_center = res[0]; // 第一个是中心点
-    calibLimits.x_min = Math.min(...res) - (res[0] - Math.min(...res)) * 0.4;
-    calibLimits.x_max = Math.max(...res) + (Math.max(...res) - res[0]) * 0.4;
+    const resX = calibData.map(d => d.x);
+    const resY = calibData.map(d => d.y);
+
+    // X 轴校准
+    calibLimits.x_center = resX[0]; // 第一个是中心点
+    calibLimits.x_min = Math.min(...resX) - (resX[0] - Math.min(...resX)) * 0.4;
+    calibLimits.x_max = Math.max(...resX) + (Math.max(...resX) - resX[0]) * 0.4;
+
+    // Y 轴校准
+    calibLimits.y_center = resY[0]; // 第一个是中心点 (0.5, 0.5)
+    calibLimits.y_min = Math.min(...resY) - (resY[0] - Math.min(...resY)) * 0.4;
+    calibLimits.y_max = Math.max(...resY) + (Math.max(...resY) - resY[0]) * 0.4;
 
     // 判断是否已经完成了评分阶段
     if (currentRatingIndex >= ratingImages.length) {
