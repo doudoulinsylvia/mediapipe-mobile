@@ -679,7 +679,7 @@ function recordGazeFrame() {
         ? (currentRatingIndex + 1)
         : (currentState === State.PHASE1_END ? 'transition' : (currentTrialIndex + 1));
 
-    // 计算 ROI (仅在二元选择决策阶段有效)
+    // 计算 ROI (二元选择阶段: 1=上图, 2=下图; 评分阶段: 1=在图片内, 0=图片外)
     let roi = 0;
     if (currentState === State.TRIAL_DECISION || currentState === State.TRIAL_FEEDBACK) {
         const margin = 30, spacing = 30, topMargin = 80;
@@ -703,6 +703,22 @@ function recordGazeFrame() {
                 roi = 2; // 下图
             }
         }
+    } else if (currentState === State.RATING_DECISION || currentState === State.RATING_FEEDBACK ||
+               currentState === State.RATING_FIXATION) {
+        // 评分阶段：判断注视是否落在单张图片范围内（与 drawRating 坐标完全一致）
+        const topMargin = 80;
+        const size = Math.min(canvas.width * 0.8, (canvas.height - 300) * 0.8);
+        const offsetX = (canvas.width - size) / 2;
+        const offsetY = topMargin;
+
+        const gx = lastGaze.x;
+        const gy = lastGaze.y;
+
+        if (gx >= offsetX && gx <= offsetX + size &&
+            gy >= offsetY && gy <= offsetY + size) {
+            roi = 1; // 注视落在图片内
+        }
+        // roi = 0 表示落在图片外（按钮区、边距等）
     }
 
     const frame = {
