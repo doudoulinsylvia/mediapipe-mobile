@@ -119,7 +119,8 @@ async function initMediaPipe() {
 
         faceMesh = new FaceMesh({
             locateFile: (file) => {
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/${file}`;
+                // 使用本地自建文件，完全绕过 CDN，解决 iOS Safari WASM 加载失败问题
+                return `mp/${file}`;
             }
         });
 

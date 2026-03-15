@@ -5,15 +5,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Mobile Food 2AFC Experiment</title>
-  <link rel="stylesheet" href="style.css?v=march12-restore">
+  <link rel="stylesheet" href="style.css?v=local-mp">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
 
-  <!-- MediaPipe Solutions -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <!-- MediaPipe Solutions (自建 v0.4 本地文件，不依赖 CDN，解决 iOS WASM 加载故障) -->
+  <script src="mp/face_mesh.js"></script>
+  <script src="mp/camera_utils.js"></script>
 </head>
 
 <body>
@@ -85,7 +84,7 @@
     <p id="loading-text">正在载入 MediaPipe 和图片资源...</p>
   </div>
 
-  <script src="script.js?v=march12-ycalib"></script>
+  <script src="script.js?v=local-mp"></script>
 </body>
 
 </html>
