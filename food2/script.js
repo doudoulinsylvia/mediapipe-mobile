@@ -900,6 +900,46 @@ async function exportData() {
             await shareOrDownload(csv, `gaze_food2_${subjectInfo.id}.csv`, dlGaze, '👁 下载眼动数据');
         } catch(e) { alert('眼动数据导出失败: ' + e.message); dlGaze.textContent = '❌ 失败，点击重试'; }
     };
+    // 抽奖按钮逻辑
+    const lotteryBtn = document.getElementById('lottery-btn');
+    lotteryBtn.onclick = () => {
+        if (behaviorLog.length === 0) {
+            alert('暂无行为数据，无法抽奖。');
+            return;
+        }
+        // 随机抽取一轮
+        const winIdx = Math.floor(Math.random() * behaviorLog.length);
+        const winTrial = behaviorLog[winIdx];
+
+        // 显示抽奖结果弹窗
+        const lotteryOverlay = document.getElementById('lottery-overlay');
+        const lotteryCanvas = document.getElementById('lottery-canvas');
+        const ctx2 = lotteryCanvas.getContext('2d');
+        lotteryCanvas.width = 440;
+        lotteryCanvas.height = 440;
+
+        document.getElementById('lottery-trial').textContent =
+            `第 ${winTrial.trial} 轮（共 ${behaviorLog.length} 轮）`;
+        document.getElementById('lottery-imgname').textContent =
+            `图片编号: ${winTrial.chosen_img_id}.jpg`;
+
+        // 在画布上绘制获奖食物图片
+        const winImg = loadedImages[winTrial.chosen_img_id];
+        ctx2.fillStyle = '#f5f5f5';
+        ctx2.fillRect(0, 0, 440, 440);
+        if (winImg) {
+            drawImageCover(ctx2, winImg, 0, 0, 440, 440);
+        } else {
+            ctx2.fillStyle = '#ddd';
+            ctx2.fillRect(0, 0, 440, 440);
+            ctx2.fillStyle = '#888';
+            ctx2.font = '20px Inter, sans-serif';
+            ctx2.textAlign = 'center';
+            ctx2.fillText(`图片 ${winTrial.chosen_img_id}`, 220, 220);
+        }
+
+        lotteryOverlay.style.display = 'flex';
+    };
 }
 
 // iOS 兼容的文件分享/下载（用户手势触发）
