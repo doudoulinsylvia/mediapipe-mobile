@@ -9,7 +9,7 @@ const wechatPrompt = document.getElementById('wechat-prompt');
 
 // 实验参数
 const TRIAL_LIMIT = 3; // 正式实验试次数
-const TOTAL_IMITS_COUNT = 200; // 总图片数
+const TOTAL_IMITS_COUNT = 3; // 总图片数（测试用）
 const IMAGES_PER_TRIAL = 2; // 二元选择（左右排布）
 const BG_COLOR = '#ffffff';
 const TEXT_COLOR = '#000000';
@@ -102,7 +102,7 @@ async function initMediaPipe() {
     updateStatus("正在载入实验环境与图片资源，请稍候...");
 
     // 根据需求，评分阶段选取 200 张图片
-    const reqCount = 200;
+    const reqCount = 3;
     const allIds = Array.from({ length: TOTAL_IMITS_COUNT }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
     const selectedIds = allIds.slice(0, reqCount);
 
