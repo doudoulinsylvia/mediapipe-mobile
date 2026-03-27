@@ -345,7 +345,7 @@ function drawDecision(trial, selectionIndex = -1) {
 
     // 左右排布：每张图片各占一半宽度（2:1 宽短长方形）
     const imgW = (availableWidth - spacing) / 2;
-    const imgH = Math.min(availableHeight * 0.7, imgW * 0.5); // 2:1 横向宽短
+    const imgH = Math.min(availableHeight * 0.85, imgW * 1.5); // 2:3 竖向瘠长
 
     // 垂直居中，水平从 margin 开始
     const offsetY = topMargin + (availableHeight - imgH) / 2;
@@ -465,7 +465,7 @@ function handleScreenTap(clientX, clientY) {
         const availableWidth  = canvas.width  - margin * 2;
         const availableHeight = canvas.height - topMargin - margin;
         const imgW = (availableWidth - spacing) / 2;
-        const imgH = Math.min(availableHeight * 0.7, imgW * 0.5);
+        const imgH = Math.min(availableHeight * 0.85, imgW * 1.5);
         const offsetY = topMargin + (availableHeight - imgH) / 2;
         const startX  = margin;
 
@@ -702,7 +702,7 @@ function recordGazeFrame() {
         const availableWidth  = canvas.width  - margin * 2;
         const availableHeight = canvas.height - topMargin - margin;
         const imgW = (availableWidth - spacing) / 2;
-        const imgH = Math.min(availableHeight * 0.7, imgW * 0.5);
+        const imgH = Math.min(availableHeight * 0.85, imgW * 1.5);
         const offsetY = topMargin + (availableHeight - imgH) / 2;
         const startX  = margin;
 
