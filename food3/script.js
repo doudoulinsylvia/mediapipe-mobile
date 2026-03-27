@@ -337,15 +337,15 @@ function drawImageCover(ctx, img, x, y, w, h) {
 
 function drawDecision(trial, selectionIndex = -1) {
     const margin = 20;       // 左右边距
-    const spacing = 20;      // 图片间距
+    const spacing = 10;      // 图片间距（减小为更宽）
     const topMargin = 80;    // 留出状态栏高度
 
     const availableWidth  = canvas.width  - margin * 2;
     const availableHeight = canvas.height - topMargin - margin;
 
-    // 左右排布：每张图片各占一半宽度（4:3 长方形）
+    // 左右排布：每张图片各占一半宽度（2:1 宽短长方形）
     const imgW = (availableWidth - spacing) / 2;
-    const imgH = Math.min(availableHeight * 0.85, imgW * 0.75); // 4:3 横向长方形
+    const imgH = Math.min(availableHeight * 0.7, imgW * 0.5); // 2:1 横向宽短
 
     // 垂直居中，水平从 margin 开始
     const offsetY = topMargin + (availableHeight - imgH) / 2;
@@ -461,11 +461,11 @@ function handleScreenTap(clientX, clientY) {
     }
 
     if (currentState === State.TRIAL_DECISION) {
-        const margin = 20, spacing = 20, topMargin = 80;
+        const margin = 20, spacing = 10, topMargin = 80;
         const availableWidth  = canvas.width  - margin * 2;
         const availableHeight = canvas.height - topMargin - margin;
         const imgW = (availableWidth - spacing) / 2;
-        const imgH = Math.min(availableHeight * 0.85, imgW * 0.75);
+        const imgH = Math.min(availableHeight * 0.7, imgW * 0.5);
         const offsetY = topMargin + (availableHeight - imgH) / 2;
         const startX  = margin;
 
@@ -698,11 +698,11 @@ function recordGazeFrame() {
     // 计算 ROI (二元选择阶段: 1=上图, 2=下图; 评分阶段: 1=在图片内, 0=图片外)
     let roi = 0;
     if (currentState === State.TRIAL_DECISION || currentState === State.TRIAL_FEEDBACK) {
-        const margin = 20, spacing = 20, topMargin = 80;
+        const margin = 20, spacing = 10, topMargin = 80;
         const availableWidth  = canvas.width  - margin * 2;
         const availableHeight = canvas.height - topMargin - margin;
         const imgW = (availableWidth - spacing) / 2;
-        const imgH = Math.min(availableHeight * 0.85, imgW * 0.75);
+        const imgH = Math.min(availableHeight * 0.7, imgW * 0.5);
         const offsetY = topMargin + (availableHeight - imgH) / 2;
         const startX  = margin;
 
