@@ -8,7 +8,7 @@ const startBtn = document.getElementById('start-btn');
 const wechatPrompt = document.getElementById('wechat-prompt');
 
 // 实验参数
-const TRIAL_LIMIT = 150; // 正式实验试次数
+const TRIAL_LIMIT = 3; // 正式实验试次数
 const TOTAL_IMITS_COUNT = 200; // 总图片数
 const IMAGES_PER_TRIAL = 2; // 二元选择（左右排布）
 const BG_COLOR = '#ffffff';
