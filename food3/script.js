@@ -337,7 +337,7 @@ function drawImageCover(ctx, img, x, y, w, h) {
 
 function drawDecision(trial, selectionIndex = -1) {
     const margin = 20;       // 左右边距
-    const spacing = 10;      // 图片间距（减小为更宽）
+    const spacing = 50;      // 图片间距（足够大以避免 ROI 误分）
     const topMargin = 80;    // 留出状态栏高度
 
     const availableWidth  = canvas.width  - margin * 2;
@@ -461,7 +461,7 @@ function handleScreenTap(clientX, clientY) {
     }
 
     if (currentState === State.TRIAL_DECISION) {
-        const margin = 20, spacing = 10, topMargin = 80;
+        const margin = 20, spacing = 50, topMargin = 80;
         const availableWidth  = canvas.width  - margin * 2;
         const availableHeight = canvas.height - topMargin - margin;
         const imgW = (availableWidth - spacing) / 2;
@@ -698,7 +698,7 @@ function recordGazeFrame() {
     // 计算 ROI (二元选择阶段: 1=上图, 2=下图; 评分阶段: 1=在图片内, 0=图片外)
     let roi = 0;
     if (currentState === State.TRIAL_DECISION || currentState === State.TRIAL_FEEDBACK) {
-        const margin = 20, spacing = 10, topMargin = 80;
+        const margin = 20, spacing = 50, topMargin = 80;
         const availableWidth  = canvas.width  - margin * 2;
         const availableHeight = canvas.height - topMargin - margin;
         const imgW = (availableWidth - spacing) / 2;
