@@ -614,19 +614,19 @@ function generateCombinations() {
     for (let k = 0; k < TRIAL_LIMIT; k++) {
         // 从候选的评分组合池中随机抽取一对
         const p = perms[Math.floor(Math.random() * perms.length)];
-        const top_rating = p[0];
-        const bottom_rating = p[1];
+        const left_rating = p[0];
+        const right_rating = p[1];
 
         // 从对应分数池中随机抽取一张图
-        const top_images = ratingGroups[top_rating];
-        const bottom_images = ratingGroups[bottom_rating];
-        const top_img = top_images[Math.floor(Math.random() * top_images.length)];
-        const bottom_img = bottom_images[Math.floor(Math.random() * bottom_images.length)];
+        const left_images  = ratingGroups[left_rating];
+        const right_images = ratingGroups[right_rating];
+        const left_img  = left_images[Math.floor(Math.random() * left_images.length)];
+        const right_img = right_images[Math.floor(Math.random() * right_images.length)];
 
         trials.push({
-            images: [top_img, bottom_img],
-            top_rating: top_rating,
-            bottom_rating: bottom_rating
+            images: [left_img, right_img],
+            left_rating:  left_rating,
+            right_rating: right_rating
         });
     }
 
@@ -660,12 +660,12 @@ function handleDecision(selectionIndex) {
         // 记录行为数据
         behaviorLog.push({
             trial: currentTrialIndex + 1,
-            top_img: trial.images[0],
-            top_rating: trial.top_rating,
-            bottom_img: trial.images[1],
-            bottom_rating: trial.bottom_rating,
-            chosen_position: selectionIndex === 0 ? 'top' : 'bottom', // 上 or 下
-            chosen_img_id: trial.chosenImageId, // 实际图片的数字编号
+            left_img:     trial.images[0],
+            left_rating:  trial.left_rating,
+            right_img:    trial.images[1],
+            right_rating: trial.right_rating,
+            chosen_position: selectionIndex === 0 ? 'left' : 'right',
+            chosen_img_id: trial.chosenImageId,
             rt: trial.rt.toFixed(2),
             gaze_total_frames: gazeLog.length,
             screen_width: canvas.width,
