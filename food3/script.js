@@ -22,6 +22,7 @@ const State = {
     SUBJECT_INFO: 'SUBJECT_INFO',
     REGISTRATION: 'REGISTRATION',
     CALIBRATION: 'CALIBRATION',
+    CALIBRATION_VERIFY: 'CALIBRATION_VERIFY',
     RATING_FIXATION: 'RATING_FIXATION',
     RATING_DECISION: 'RATING_DECISION',
     RATING_FEEDBACK: 'RATING_FEEDBACK',
@@ -64,6 +65,8 @@ let calibPoints = [
     { x: 0.5, y: 0.8 }, { x: 0.2, y: 0.5 }, { x: 0.8, y: 0.5 }
 ];
 let currentCalibIndex = 0;
+let calibPointShownTime = 0;
+let verifyPoint = null;
 
 // 窗口与画布自适应
 function resize() {
@@ -298,6 +301,7 @@ function startExperiment() {
 
     currentCalibIndex = 0;
     calibData = [];
+    calibPointShownTime = Date.now();
     currentState = State.CALIBRATION;
     requestAnimationFrame(loop);
 }
@@ -485,9 +489,15 @@ function handleScreenTap(clientX, clientY) {
     }
 
     if (currentState === State.CALIBRATION) {
+        if (Date.now() - calibPointShownTime < 800) {
+            updateStatus("⏳ 请先注视红点再点击");
+            if (navigator.vibrate) navigator.vibrate(50);
+            return;
+        }
         if (lastGaze.valid) {
             calibData.push({ x: lastGaze.raw_x, y: lastGaze.raw_y });
             currentCalibIndex++;
+            calibPointShownTime = Date.now();
             updateStatus(`校准点 ${currentCalibIndex}/9 已采集`);
             if (currentCalibIndex >= calibPoints.length) {
                 finishCalibration();
@@ -499,9 +509,36 @@ function handleScreenTap(clientX, clientY) {
         return;
     }
 
+    if (currentState === State.CALIBRATION_VERIFY) {
+        if (!lastGaze.valid) {
+            updateStatus("未检测到面部，请正对手机后再点击");
+            if (navigator.vibrate) navigator.vibrate(50);
+            return;
+        }
+        const vx = verifyPoint.x * canvas.width;
+        const distX = Math.abs(lastGaze.x - vx);
+        const threshold = canvas.width * 0.25;
+
+        if (distX < threshold) {
+            updateStatus("✅ 校准验证通过！");
+            setTimeout(() => afterCalibrationVerified(), 800);
+        } else {
+            updateStatus("❌ 校准偏差过大，请重新校准");
+            if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+            setTimeout(() => {
+                currentCalibIndex = 0;
+                calibData = [];
+                calibPointShownTime = Date.now();
+                currentState = State.CALIBRATION;
+            }, 1500);
+        }
+        return;
+    }
+
     if (currentState === State.BREAK) {
         currentCalibIndex = 0;
         calibData = [];
+        calibPointShownTime = Date.now();
         currentState = State.CALIBRATION;
         updateStatus("休息结束，开始校准");
         return;
@@ -527,12 +564,16 @@ function finishCalibration() {
     calibLimits.y_min = Math.min(...resY) - (resY[0] - Math.min(...resY)) * 0.4;
     calibLimits.y_max = Math.max(...resY) + (Math.max(...resY) - resY[0]) * 0.4;
 
-    // 判断是否已经完成了评分阶段
+    // 进入校准验证环节
+    verifyPoint = { x: 0.5, y: 0.5 };
+    currentState = State.CALIBRATION_VERIFY;
+    updateStatus("校准完成，请注视绿点验证");
+}
+
+function afterCalibrationVerified() {
     if (currentRatingIndex >= ratingImages.length) {
-        // 评分已完成，继续二元选择阶段的下一个试次
         startTrial();
     } else {
-        // 首次校准完成，进入评分阶段
         currentState = State.RATING_FIXATION;
         currentRatingIndex = 0;
         startRatingTrial();
@@ -788,6 +829,20 @@ function loop() {
             drawText(`请注视红点并点击屏幕 (${currentCalibIndex + 1}/9)`, canvas.width / 2, canvas.height - 100, 20);
 
             // 新增面部检测状态反馈
+            if (lastGaze.valid) {
+                drawText("✅ 面部已锁定", canvas.width / 2, 50, 18, "#00ff00");
+            } else {
+                drawText("❌ 未检测到面部", canvas.width / 2, 50, 18, "#ff0000");
+            }
+            break;
+
+        case State.CALIBRATION_VERIFY:
+            const vp = verifyPoint;
+            ctx.fillStyle = '#00cc00';
+            ctx.beginPath();
+            ctx.arc(vp.x * canvas.width, vp.y * canvas.height, 20, 0, Math.PI * 2);
+            ctx.fill();
+            drawText("请注视绿点并点击屏幕验证", canvas.width / 2, canvas.height - 100, 20);
             if (lastGaze.valid) {
                 drawText("✅ 面部已锁定", canvas.width / 2, 50, 18, "#00ff00");
             } else {
