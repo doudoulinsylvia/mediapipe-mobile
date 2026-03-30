@@ -8,8 +8,8 @@ const startBtn = document.getElementById('start-btn');
 const wechatPrompt = document.getElementById('wechat-prompt');
 
 // 实验参数
-const TRIAL_LIMIT = 150; // 正式实验试次数
-const TOTAL_IMITS_COUNT = 200; // 总图片数
+const TRIAL_LIMIT = 30; // 预实验试次数（正式版改回150）
+const TOTAL_IMITS_COUNT = 40; // 预实验图片数（正式版改回200）
 const IMAGES_PER_TRIAL = 2; // 二元选择（左右排布）
 const BG_COLOR = '#ffffff';
 const TEXT_COLOR = '#000000';
@@ -102,7 +102,7 @@ async function initMediaPipe() {
     updateStatus("正在载入实验环境与图片资源，请稍候...");
 
     // 根据需求，评分阶段选取 200 张图片
-    const reqCount = 200;
+    const reqCount = 40; // 预实验图片数
     const allIds = Array.from({ length: TOTAL_IMITS_COUNT }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
     const selectedIds = allIds.slice(0, reqCount);
 
@@ -695,7 +695,7 @@ function recordGazeFrame() {
         ? (currentRatingIndex + 1)
         : (currentState === State.PHASE1_END ? 'transition' : (currentTrialIndex + 1));
 
-    // 计算 ROI (二元选择阶段: 1=上图, 2=下图; 评分阶段: 1=在图片内, 0=图片外)
+    // 计算 ROI (二元选择阶段: 1=左图, 2=右图; 评分阶段: 1=在图片内, 0=图片外)
     let roi = 0;
     if (currentState === State.TRIAL_DECISION || currentState === State.TRIAL_FEEDBACK) {
         const margin = 20, spacing = 50, topMargin = 80;
