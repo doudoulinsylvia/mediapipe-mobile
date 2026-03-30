@@ -891,7 +891,7 @@ async function exportData() {
         await new Promise(r => setTimeout(r, 100));
         try {
             const csv = jsonToCSV(ratingLog);
-            await shareOrDownload(csv, `rating_food2_${subjectInfo.id}.csv`, dlRating, '📊 下载评分数据');
+            await shareOrDownload(csv, `rating_food3_${subjectInfo.id}.csv`, dlRating, '📊 下载评分数据');
         } catch(e) { alert('评分数据导出失败: ' + e.message); dlRating.textContent = '❌ 失败，点击重试'; }
     };
 
@@ -900,7 +900,7 @@ async function exportData() {
         await new Promise(r => setTimeout(r, 100));
         try {
             const csv = jsonToCSV(behaviorLog);
-            await shareOrDownload(csv, `behavior_food2_${subjectInfo.id}.csv`, dlBehavior, '🧠 下载行为数据');
+            await shareOrDownload(csv, `behavior_food3_${subjectInfo.id}.csv`, dlBehavior, '🧠 下载行为数据');
         } catch(e) { alert('行为数据导出失败: ' + e.message); dlBehavior.textContent = '❌ 失败，点击重试'; }
     };
 
@@ -911,7 +911,7 @@ async function exportData() {
             // 眼动数据去掉 face_mesh 字段用于分享（太大了）
             const gazeLogLight = gazeLog.map(({ face_mesh, ...rest }) => rest);
             const csv = jsonToCSV(gazeLogLight);
-            await shareOrDownload(csv, `gaze_food2_${subjectInfo.id}.csv`, dlGaze, '👁 下载眼动数据');
+            await shareOrDownload(csv, `gaze_food3_${subjectInfo.id}.csv`, dlGaze, '👁 下载眼动数据');
         } catch(e) { alert('眼动数据导出失败: ' + e.message); dlGaze.textContent = '❌ 失败，点击重试'; }
     };
     // 抽奖按钮逻辑
