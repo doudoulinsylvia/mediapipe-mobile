@@ -709,13 +709,11 @@ function recordGazeFrame() {
         const gx = lastGaze.x;
         const gy = lastGaze.y;
 
-        // 判断逻辑与 drawDecision 保持一致（左右排布）
-        if (gy >= offsetY && gy <= offsetY + imgH) {
-            if (gx >= startX && gx <= startX + imgW) {
-                roi = 1; // 左图
-            } else if (gx >= startX + imgW + spacing && gx <= startX + imgW * 2 + spacing) {
-                roi = 2; // 右图
-            }
+        // 左右排布：只检查 X 轴，放宽 Y 轴边界（移动端 Y 精度低）
+        if (gx >= startX && gx <= startX + imgW) {
+            roi = 1; // 左图
+        } else if (gx >= startX + imgW + spacing && gx <= startX + imgW * 2 + spacing) {
+            roi = 2; // 右图
         }
     } else if (currentState === State.RATING_DECISION || currentState === State.RATING_FEEDBACK ||
                currentState === State.RATING_FIXATION) {
