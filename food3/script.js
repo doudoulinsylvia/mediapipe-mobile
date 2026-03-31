@@ -761,7 +761,7 @@ function nextTrial() {
     if (currentTrialIndex >= trials.length) {
         currentState = State.FINISHED;
         exportData();
-    } else if (currentTrialIndex > 0 && currentTrialIndex % 25 === 0) {
+    } else if (currentTrialIndex > 0 && currentTrialIndex % 50 === 0) {
         currentState = State.BREAK;
     } else {
         startTrial();
