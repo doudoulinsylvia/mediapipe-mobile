@@ -824,6 +824,7 @@ function recordGazeFrame() {
         gazeX: (lastGaze.x / (canvas.width || 1)).toFixed(4), // 归一化 X
         gazeY: (lastGaze.y / (canvas.height || 1)).toFixed(4), // 归一化 Y
         roi: roi,
+        raw_x: lastGaze.raw_x ? lastGaze.raw_x.toFixed(5) : '',
         valid: lastGaze.valid ? 1 : 0,
         blink: lastGaze.blink || 0,
         eye_openness: lastGaze.eye_openness || 0,
