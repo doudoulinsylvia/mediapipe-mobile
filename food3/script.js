@@ -216,6 +216,10 @@ function onResults(results) {
         lastGaze.pupil_R = (r_iris_size / (h_dist + 1e-6)).toFixed(5);
         lastGaze.pupil_avg = ((Number(lastGaze.pupil_L) + Number(lastGaze.pupil_R)) / 2.0).toFixed(5);
 
+        // 5. 眨眼与开合度
+        lastGaze.eye_openness = ratio.toFixed(4);
+        lastGaze.blink = ratio < 0.14 ? 1 : 0;
+
         // 4. 垂直 Y 映射计算 (粗略估计眼球上下运动)
         // 使用眼眶上下边界中点作为参考参考
         const leftEyeH = Math.hypot(lms[159].x - lms[145].x, lms[159].y - lms[145].y);
@@ -705,6 +709,7 @@ function generateCombinations() {
 function startTrial() {
     const trial = trials[currentTrialIndex];
     trial.startTime = performance.now();
+    trial.fixStart = performance.now();
     currentState = State.TRIAL_FIXATION;
 
     setTimeout(() => {
@@ -720,12 +725,14 @@ function handleDecision(selectionIndex) {
     trial.selectionIndex = selectionIndex;
     trial.chosenImageId = trial.images[selectionIndex];
     trial.rt = performance.now() - trial.decisionStartTime;
+    trial.feedbackStart = performance.now();
 
-    lastFeedbackTrialIndex = currentTrialIndex; // 保存当前索引，防止渲染越界
+    lastFeedbackTrialIndex = currentTrialIndex;
     currentState = State.TRIAL_FEEDBACK;
 
     setTimeout(() => {
-        // 记录行为数据
+        trial.feedbackEnd = performance.now();
+
         behaviorLog.push({
             trial: currentTrialIndex + 1,
             left_img:     trial.images[0],
@@ -735,6 +742,10 @@ function handleDecision(selectionIndex) {
             chosen_position: selectionIndex === 0 ? 'left' : 'right',
             chosen_img_id: trial.chosenImageId,
             rt: trial.rt.toFixed(2),
+            fix_start: trial.fixStart.toFixed(2),
+            decision_start: trial.decisionStartTime.toFixed(2),
+            feedback_start: trial.feedbackStart.toFixed(2),
+            feedback_end: trial.feedbackEnd.toFixed(2),
             gaze_total_frames: gazeLog.length,
             screen_width: canvas.width,
             screen_height: canvas.height,
@@ -813,6 +824,8 @@ function recordGazeFrame() {
         gazeY: (lastGaze.y / (canvas.height || 1)).toFixed(4), // 归一化 Y
         roi: roi,
         valid: lastGaze.valid ? 1 : 0,
+        blink: lastGaze.blink || 0,
+        eye_openness: lastGaze.eye_openness || 0,
         sw: canvas.width,
         sh: canvas.height,
         pupil_L: lastGaze.pupil_L,
