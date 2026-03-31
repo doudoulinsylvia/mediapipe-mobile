@@ -68,6 +68,19 @@ let currentCalibIndex = 0;
 let calibPointShownTime = 0;
 let verifyPoint = null;
 
+// 注视平滑与校准降噪
+let rawXBuffer = [];
+let rawYBuffer = [];
+const RAW_BUFFER_SIZE = 20;
+const GAZE_SMOOTH_SIZE = 5;
+
+function median(arr) {
+    if (arr.length === 0) return 0.5;
+    const sorted = [...arr].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
 // 窗口与画布自适应
 function resize() {
     canvas.width = window.innerWidth;
@@ -217,11 +230,21 @@ function onResults(results) {
         lastGaze.raw_x = raw_x;
         lastGaze.raw_y = raw_y;
         lastGaze.valid = !!valid;
-        lastGaze.ratio = ratio; // 新增：保存比例用于调试
+        lastGaze.ratio = ratio;
 
-        // 映射到屏幕坐标（X 和 Y 轴均经过9点个人校准）
-        lastGaze.x = mapX(raw_x);
-        lastGaze.y = mapY(raw_y);
+        // 缓存原始值
+        rawXBuffer.push(raw_x);
+        if (rawXBuffer.length > RAW_BUFFER_SIZE) rawXBuffer.shift();
+        rawYBuffer.push(raw_y);
+        if (rawYBuffer.length > RAW_BUFFER_SIZE) rawYBuffer.shift();
+
+        // 映射到屏幕坐标（5帧滑动平均）
+        const smoothX = rawXBuffer.slice(-GAZE_SMOOTH_SIZE);
+        const avgRawX = smoothX.reduce((a, b) => a + b, 0) / smoothX.length;
+        const smoothY = rawYBuffer.slice(-GAZE_SMOOTH_SIZE);
+        const avgRawY = smoothY.reduce((a, b) => a + b, 0) / smoothY.length;
+        lastGaze.x = mapX(avgRawX);
+        lastGaze.y = mapY(avgRawY);
 
         // 记录 468 个点 (关键改进)
         // 为了 CSV 效率，将其存为特定格式的字符串
@@ -495,9 +518,13 @@ function handleScreenTap(clientX, clientY) {
             return;
         }
         if (lastGaze.valid) {
-            calibData.push({ x: lastGaze.raw_x, y: lastGaze.raw_y });
+            const calibX = rawXBuffer.length >= 3 ? median(rawXBuffer) : lastGaze.raw_x;
+            const calibY = rawYBuffer.length >= 3 ? median(rawYBuffer) : lastGaze.raw_y;
+            calibData.push({ x: calibX, y: calibY });
             currentCalibIndex++;
             calibPointShownTime = Date.now();
+            rawXBuffer = [];
+            rawYBuffer = [];
             updateStatus(`校准点 ${currentCalibIndex}/9 已采集`);
             if (currentCalibIndex >= calibPoints.length) {
                 finishCalibration();
