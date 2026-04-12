@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>横屏注视点测试</title>
+  <!-- MediaPipe Solutions (与 food3_formal 完全一致) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:#000; color:#fff; font-family:sans-serif; overflow:hidden; width:100vw; height:100vh; }
+    #rotate-msg { display:none; position:fixed; inset:0; background:#000; z-index:9999;
+      flex-direction:column; align-items:center; justify-content:center; font-size:24px; }
+    @media (orientation: portrait) {
+      #rotate-msg { display:flex !important; }
+      canvas { display:none !important; }
+    }
+    canvas { display:block; width:100vw; height:100vh; }
+    .video-container { position:absolute; top:-9999px; left:-9999px; }
+    #debug { position:fixed; bottom:5px; left:5px; color:lime; font-size:11px; z-index:9999;
+      background:rgba(0,0,0,0.7); padding:4px 8px; border-radius:4px; }
+  </style>
+</head>
+<body>
+  <div id="rotate-msg">📱 请将手机横过来<br><span style="font-size:60px;margin-top:20px;">↻</span></div>
+  <div class="video-container"><video id="input_video" playsinline webkit-playsinline></video></div>
+  <canvas id="c"></canvas>
+  <div id="debug">加载中...</div>
+
+<script>
+// ============================================================
+// 完全复刻 food3_formal 的 MediaPipe 初始化方式
+// 只做一件事: 在 canvas 上画注视点
+// ============================================================
+const videoElement = document.getElementById('input_video');
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const debugDiv = document.getElementById('debug');
+
+let lastGaze = { raw_x: 0.5, raw_y: 0.5, valid: false };
+let rawXBuffer = [], rawYBuffer = [];
+let calibLimits = { x_min: 0.3, x_max: 0.7, x_center: 0.5, y_min: -0.1, y_max: 0.7, y_center: 0.3 };
+let calibrated = false;
+let frameCount = 0;
+
+// 食物图片 (预加载)
+const foodImages = {};
+const imgList = ['1.jpg','2.jpg','3.jpg','4.jpg','5.jpg','6.jpg'];
+let imagesLoaded = 0;
+const IMG_DIR = '../food2/images/';
+
+function preloadImages() {
+    imgList.forEach(name => {
+        const img = new Image();
+        img.onload = () => { imagesLoaded++; };
+        img.src = IMG_DIR + name;
+        foodImages[name] = img;
+    });
+}
+preloadImages();
+
+// 试次
+const trials = [
+    { left: '1.jpg', right: '2.jpg' },
+    { left: '3.jpg', right: '4.jpg' },
+    { left: '5.jpg', right: '6.jpg' }
+];
+let currentTrial = -1; // -1=等待校准, 0-2=试次
+let trialStartTime = 0;
+let gazeLog = [];
+let phase = 'LOADING'; // LOADING, READY, CALIBRATING, FIXATION, DECISION, DONE
+
+// ============================================================
+// onResults (完全复刻 food3_formal)
+// ============================================================
+function onResults(results) {
+    if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+        lastGaze.valid = false;
+        return;
+    }
+    frameCount++;
+    const lms = results.multiFaceLandmarks[0];
+
+    const v_dist = Math.hypot(lms[159].x - lms[145].x, lms[159].y - lms[145].y);
+    const h_dist = Math.hypot(lms[133].x - lms[33].x, lms[133].y - lms[33].y);
+    const ratio = v_dist / (h_dist + 1e-6);
+    lastGaze.valid = ratio > 0.14;
+
+    const h_dist_lx = Math.hypot(lms[133].x - lms[33].x, lms[133].y - lms[33].y);
+    const lx = Math.hypot(lms[468].x - lms[33].x, lms[468].y - lms[33].y) / (h_dist_lx + 1e-6);
+    const h_dist_rx = Math.hypot(lms[263].x - lms[362].x, lms[263].y - lms[362].y);
+    const rx = Math.hypot(lms[473].x - lms[362].x, lms[473].y - lms[362].y) / (h_dist_rx + 1e-6);
+    const raw_x = (lx + rx) / 2.0;
+
+    const leftEyeH = Math.hypot(lms[159].x - lms[145].x, lms[159].y - lms[145].y);
+    const rightEyeH = Math.hypot(lms[386].x - lms[374].x, lms[386].y - lms[374].y);
+    const l_y = (lms[468].y - lms[159].y) / (leftEyeH + 1e-6);
+    const r_y = (lms[473].y - lms[386].y) / (rightEyeH + 1e-6);
+    const raw_y = (l_y + r_y) / 2.0;
+
+    lastGaze.raw_x = raw_x;
+    lastGaze.raw_y = raw_y;
+
+    rawXBuffer.push(raw_x);
+    if (rawXBuffer.length > 10) rawXBuffer.shift();
+    rawYBuffer.push(raw_y);
+    if (rawYBuffer.length > 10) rawYBuffer.shift();
+
+    debugDiv.textContent = `f:${frameCount} rx:${raw_x.toFixed(3)} ry:${raw_y.toFixed(3)} v:${lastGaze.valid?'Y':'N'}`;
+}
+
+function median(arr) {
+    const s = [...arr].sort((a,b) => a-b);
+    const m = Math.floor(s.length/2);
+    return s.length%2 ? s[m] : (s[m-1]+s[m])/2;
+}
+
+function mapX(rx) {
+    const { x_min, x_max, x_center } = calibLimits;
+    if (rx < x_center) {
+        return Math.max(0, (rx-x_min)/(x_center-x_min+1e-6)) * (canvas.width/2);
+    } else {
+        return canvas.width/2 + Math.min(1, (rx-x_center)/(x_max-x_center+1e-6)) * (canvas.width/2);
+    }
+}
+
+function mapY(ry) {
+    const { y_min, y_max, y_center } = calibLimits;
+    if (ry < y_center) {
+        return Math.max(0, (ry-y_min)/(y_center-y_min+1e-6)) * (canvas.height/2);
+    } else {
+        return canvas.height/2 + Math.min(1, (ry-y_center)/(y_max-y_center+1e-6)) * (canvas.height/2);
+    }
+}
+
+// ============================================================
+// 画面渲染
+// ============================================================
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+function draw() {
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    if (phase === 'LOADING') {
+        drawText('加载中...', canvas.width/2, canvas.height/2, 24);
+    } else if (phase === 'READY') {
+        drawText('✅ 摄像头就绪', canvas.width/2, canvas.height/2 - 40, 24);
+        drawText('点击屏幕开始校准', canvas.width/2, canvas.height/2 + 20, 18, '#aaa');
+    } else if (phase === 'CALIBRATING') {
+        // 由 calibrate() 控制
+    } else if (phase === 'FIXATION') {
+        drawText('+', canvas.width/2, canvas.height/2, 60, '#ffcc00');
+    } else if (phase === 'DECISION') {
+        // 画左右食物图
+        const t = trials[currentTrial];
+        const imgW = canvas.width * 0.35;
+        const imgH = canvas.height * 0.7;
+        const yOff = canvas.height * 0.15;
+        
+        if (foodImages[t.left] && foodImages[t.left].complete) {
+            ctx.drawImage(foodImages[t.left], canvas.width*0.05, yOff, imgW, imgH);
+        }
+        if (foodImages[t.right] && foodImages[t.right].complete) {
+            ctx.drawImage(foodImages[t.right], canvas.width*0.6, yOff, imgW, imgH);
+        }
+
+        // 选择按钮
+        ctx.fillStyle = '#2a6bff';
+        ctx.fillRect(canvas.width*0.075, canvas.height*0.88, canvas.width*0.35, 40);
+        drawText('⬅ 选左边', canvas.width*0.25, canvas.height*0.88+22, 16, '#fff');
+
+        ctx.fillStyle = '#ff4444';
+        ctx.fillRect(canvas.width*0.575, canvas.height*0.88, canvas.width*0.35, 40);
+        drawText('➡ 选右边', canvas.width*0.75, canvas.height*0.88+22, 16, '#fff');
+    } else if (phase === 'DONE') {
+        drawText('测试完成！', canvas.width/2, canvas.height/2 - 60, 28);
+        for (let i = 0; i < trials.length; i++) {
+            const tg = gazeLog.filter(g => g.trial === i);
+            const leftPct = tg.length > 0 ? (tg.filter(g=>g.gazeX<0.5).length/tg.length*100).toFixed(0) : '-';
+            const rightPct = tg.length > 0 ? (tg.filter(g=>g.gazeX>=0.5).length/tg.length*100).toFixed(0) : '-';
+            drawText(`Trial ${i+1}: 选${trials[i].choice||'?'} | 左看${leftPct}% 右看${rightPct}%`, 
+                canvas.width/2, canvas.height/2 - 10 + i*30, 16, '#ccc');
+        }
+        drawText('点击下载数据', canvas.width/2, canvas.height/2 + 100, 18, '#ffcc00');
+    }
+
+    // 画注视点 (始终画)
+    if (frameCount > 0 && lastGaze.valid) {
+        const sX = rawXBuffer.slice(-3);
+        const sY = rawYBuffer.slice(-3);
+        const avgX = sX.reduce((a,b)=>a+b,0) / sX.length;
+        const avgY = sY.reduce((a,b)=>a+b,0) / sY.length;
+        const gx = mapX(avgX);
+        const gy = mapY(avgY);
+
+        ctx.beginPath();
+        ctx.arc(gx, gy, 12, 0, Math.PI*2);
+        ctx.fillStyle = calibrated ? 'rgba(0,255,100,0.7)' : 'rgba(255,200,0,0.7)';
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // 记录
+        if (phase === 'DECISION') {
+            gazeLog.push({
+                trial: currentTrial,
+                time: Date.now() - trialStartTime,
+                gazeX: (gx / canvas.width).toFixed(4),
+                gazeY: (gy / canvas.height).toFixed(4),
+                raw_x: lastGaze.raw_x.toFixed(5),
+                raw_y: lastGaze.raw_y.toFixed(5)
+            });
+        }
+    }
+
+    requestAnimationFrame(draw);
+}
+
+function drawText(text, x, y, size, color) {
+    ctx.fillStyle = color || '#fff';
+    ctx.font = `${size||16}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, y);
+}
+
+// ============================================================
+// 校准
+// ============================================================
+let calibPoints = [
+    {x:0.5, y:0.5}, {x:0.15, y:0.5}, {x:0.85, y:0.5}, {x:0.5, y:0.2}, {x:0.5, y:0.8}
+];
+let calibIndex = 0;
+let calibResX = [], calibResY = [];
+
+async function calibrate() {
+    phase = 'CALIBRATING';
+    calibResX = []; calibResY = [];
+    
+    for (let i = 0; i < calibPoints.length; i++) {
+        const cp = calibPoints[i];
+        // 画校准点
+        const drawCalibDot = () => {
+            ctx.fillStyle = '#111';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.beginPath();
+            ctx.arc(cp.x * canvas.width, cp.y * canvas.height, 18, 0, Math.PI*2);
+            ctx.fillStyle = '#ffcc00';
+            ctx.fill();
+            drawText(`请注视黄点 (${i+1}/${calibPoints.length})`, canvas.width/2, canvas.height - 40, 16, '#888');
+        };
+        drawCalibDot();
+        
+        await sleep(1200);
+        rawXBuffer = []; rawYBuffer = [];
+        await sleep(600);
+        
+        const cx = rawXBuffer.length >= 3 ? median(rawXBuffer) : lastGaze.raw_x;
+        const cy = rawYBuffer.length >= 3 ? median(rawYBuffer) : lastGaze.raw_y;
+        calibResX.push(cx);
+        calibResY.push(cy);
+    }
+
+    calibLimits.x_center = calibResX[0];
+    calibLimits.x_min = Math.min(...calibResX) - (calibResX[0] - Math.min(...calibResX)) * 0.4;
+    calibLimits.x_max = Math.max(...calibResX) + (Math.max(...calibResX) - calibResX[0]) * 0.4;
+    calibLimits.y_center = calibResY[0];
+    calibLimits.y_min = Math.min(...calibResY) - (calibResY[0] - Math.min(...calibResY)) * 0.4;
+    calibLimits.y_max = Math.max(...calibResY) + (Math.max(...calibResY) - calibResY[0]) * 0.4;
+    
+    calibrated = true;
+    runTrials();
+}
+
+// ============================================================
+// 试次
+// ============================================================
+async function runTrials() {
+    for (currentTrial = 0; currentTrial < trials.length; currentTrial++) {
+        phase = 'FIXATION';
+        await sleep(800);
+        phase = 'DECISION';
+        trialStartTime = Date.now();
+        const choice = await waitChoice();
+        trials[currentTrial].choice = choice;
+        trials[currentTrial].rt = Date.now() - trialStartTime;
+    }
+    phase = 'DONE';
+}
+
+function waitChoice() {
+    return new Promise(resolve => {
+        function handler(e) {
+            const rect = canvas.getBoundingClientRect();
+            const x = (e.clientX - rect.left) / rect.width;
+            if (x < 0.5) { canvas.removeEventListener('click', handler); resolve('left'); }
+            else { canvas.removeEventListener('click', handler); resolve('right'); }
+        }
+        canvas.addEventListener('click', handler);
+    });
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ============================================================
+// 触摸/点击事件
+// ============================================================
+canvas.addEventListener('click', () => {
+    if (phase === 'READY') {
+        calibrate();
+    } else if (phase === 'DONE') {
+        downloadData();
+    }
+});
+
+function downloadData() {
+    const csv = 'trial,time_ms,gazeX,gazeY,raw_x,raw_y\n' +
+        gazeLog.map(g => `${g.trial},${g.time},${g.gazeX},${g.gazeY},${g.raw_x},${g.raw_y}`).join('\n');
+    const blob = new Blob([csv], {type:'text/csv'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `landscape_gaze_${Date.now()}.csv`;
+    a.click();
+}
+
+// ============================================================
+// 初始化 (与 food3_formal 完全一致)
+// ============================================================
+async function init() {
+    const faceMesh = new FaceMesh({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+    });
+    faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+    faceMesh.onResults(onResults);
+
+    const camera = new Camera(videoElement, {
+        onFrame: async () => {
+            await faceMesh.send({ image: videoElement });
+        },
+        width: 640,
+        height: 480
+    });
+    await camera.start();
+
+    phase = 'READY';
+}
+
+draw();
+init();
+</script>
+</body>
+</html>
