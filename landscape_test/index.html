@@ -466,34 +466,69 @@
         a.click();
     }
 
+    let frameCount = 0;
+    const debugDiv = document.createElement('div');
+    debugDiv.style.cssText = 'position:fixed;bottom:10px;left:10px;color:lime;font-size:12px;z-index:9999;background:rgba(0,0,0,0.7);padding:5px 10px;border-radius:5px;';
+    document.body.appendChild(debugDiv);
+
     // ============================================================
     // 初始化
     // ============================================================
     function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
     async function init() {
-        statusDiv.textContent = '加载 MediaPipe...';
+        statusDiv.textContent = '① 加载 MediaPipe...';
+        debugDiv.textContent = '状态: 初始化中...';
 
-        faceMesh = new FaceMesh({
-            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/${file}`
-        });
-        faceMesh.setOptions({
-            maxNumFaces: 1,
-            refineLandmarks: true,
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
-        });
-        faceMesh.onResults(onResults);
+        try {
+            faceMesh = new FaceMesh({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/${file}`
+            });
+            statusDiv.textContent = '② FaceMesh 创建成功，配置中...';
 
-        camera = new Camera(videoElement, {
-            onFrame: async () => { await faceMesh.send({ image: videoElement }); },
-            width: 640,
-            height: 480
-        });
-        await camera.start();
+            faceMesh.setOptions({
+                maxNumFaces: 1,
+                refineLandmarks: true,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
 
-        statusDiv.innerHTML = '✅ 摄像头就绪<br><br>请将手机放在支架上，保持正面<br><br>' +
-            '<button onclick="runCalibration()" style="padding:12px 40px; font-size:18px; border-radius:10px; border:none; background:#ffcc00; color:#111; cursor:pointer;">开始校准</button>';
+            faceMesh.onResults((results) => {
+                frameCount++;
+                try {
+                    onResults(results);
+                } catch(e) {
+                    debugDiv.textContent = '❌ onResults错误: ' + e.message;
+                }
+                if (frameCount % 10 === 0) {
+                    debugDiv.textContent = `帧: ${frameCount} | raw_x: ${lastGaze.raw_x.toFixed(3)} | valid: ${lastGaze.valid} | dot: ${gazeDot.style.left}`;
+                }
+            });
+
+            statusDiv.textContent = '③ 启动摄像头...';
+
+            camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    try {
+                        await faceMesh.send({ image: videoElement });
+                    } catch(e) {
+                        debugDiv.textContent = '❌ send错误: ' + e.message;
+                    }
+                },
+                width: 640,
+                height: 480
+            });
+            await camera.start();
+
+            statusDiv.innerHTML = '✅ 摄像头就绪<br><br>请将手机放在支架上，保持正面<br><br>' +
+                '<button onclick="runCalibration()" style="padding:12px 40px; font-size:18px; border-radius:10px; border:none; background:#ffcc00; color:#111; cursor:pointer;">开始校准</button>';
+            debugDiv.textContent = '状态: 等待校准... 帧数将在检测到人脸后增加';
+
+        } catch(e) {
+            statusDiv.textContent = '❌ 初始化失败: ' + e.message;
+            debugDiv.textContent = '错误: ' + e.message;
+            console.error(e);
+        }
     }
 
     init();
