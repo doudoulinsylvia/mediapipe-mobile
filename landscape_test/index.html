@@ -247,7 +247,8 @@
         lastGaze.y = mapY(avgY);
 
         // 更新注视点位置 (始终更新，即使未校准)
-        const normX = Math.max(0, Math.min(1, lastGaze.x / window.innerWidth));
+        // 注意: 横屏前摄镜像, X轴需要翻转
+        const normX = 1 - Math.max(0, Math.min(1, lastGaze.x / window.innerWidth));
         const normY = Math.max(0, Math.min(1, lastGaze.y / window.innerHeight));
         gazeDot.style.left = (normX * 100) + '%';
         gazeDot.style.top = (normY * 100) + '%';
