@@ -37,7 +37,7 @@
         }
         video { display: none; }
 
-        /* 注视点 */
+        /* 注视点 - 无 transition，即时响应 */
         #gaze-dot {
             position: absolute;
             width: 20px; height: 20px;
@@ -47,7 +47,7 @@
             transform: translate(-50%, -50%);
             pointer-events: none;
             z-index: 100;
-            transition: left 0.05s, top 0.05s;
+            left: 50%; top: 50%;
         }
 
         /* 校准点 */
@@ -173,7 +173,9 @@
     const fixCross = document.getElementById('fixation-cross');
 
     let faceMesh, camera;
-    let calibLimits = { x_min: 0, x_max: 1, x_center: 0.5, y_min: 0, y_max: 1, y_center: 0.5 };
+    let calibrated = false;
+    // 默认值匹配典型 raw_x/raw_y 范围
+    let calibLimits = { x_min: 0.25, x_max: 0.75, x_center: 0.5, y_min: -0.2, y_max: 0.8, y_center: 0.3 };
     let rawXBuffer = [], rawYBuffer = [];
     const RAW_BUFFER_SIZE = 10;
     const GAZE_SMOOTH_SIZE = 5;
@@ -224,37 +226,38 @@
         rawYBuffer.push(raw_y);
         if (rawYBuffer.length > RAW_BUFFER_SIZE) rawYBuffer.shift();
 
-        // 平滑 + 映射
-        const sX = rawXBuffer.slice(-GAZE_SMOOTH_SIZE);
-        const sY = rawYBuffer.slice(-GAZE_SMOOTH_SIZE);
+        // 平滑 (只用最近3帧，减少延迟)
+        const sX = rawXBuffer.slice(-3);
+        const sY = rawYBuffer.slice(-3);
         const avgX = sX.reduce((a, b) => a + b, 0) / sX.length;
         const avgY = sY.reduce((a, b) => a + b, 0) / sY.length;
+
+        // 映射到屏幕坐标
         lastGaze.x = mapX(avgX);
         lastGaze.y = mapY(avgY);
 
-        // 更新注视点位置
-        if (lastGaze.valid) {
-            const normX = lastGaze.x / window.innerWidth;
-            const normY = lastGaze.y / window.innerHeight;
-            gazeDot.style.left = (normX * 100) + '%';
-            gazeDot.style.top = (normY * 100) + '%';
-            gazeDot.style.opacity = '1';
-            infoDiv.textContent = `raw_x=${raw_x.toFixed(3)} raw_y=${raw_y.toFixed(3)} | gaze: ${normX.toFixed(2)}, ${normY.toFixed(2)}`;
+        // 更新注视点位置 (始终更新，即使未校准)
+        const normX = Math.max(0, Math.min(1, lastGaze.x / window.innerWidth));
+        const normY = Math.max(0, Math.min(1, lastGaze.y / window.innerHeight));
+        gazeDot.style.left = (normX * 100) + '%';
+        gazeDot.style.top = (normY * 100) + '%';
+        gazeDot.style.opacity = lastGaze.valid ? '1' : '0.3';
+        gazeDot.style.background = lastGaze.valid ? 
+            (calibrated ? 'rgba(0,255,100,0.8)' : 'rgba(255,200,0,0.8)') : 'rgba(255,0,0,0.5)';
 
-            // 记录
-            if (state === 'DECISION') {
-                gazeLog.push({
-                    trial: currentTrial + 1,
-                    time: Date.now() - trialStartTime,
-                    gazeX: normX.toFixed(4),
-                    gazeY: normY.toFixed(4),
-                    raw_x: raw_x.toFixed(5),
-                    raw_y: raw_y.toFixed(5),
-                    valid: 1
-                });
-            }
-        } else {
-            gazeDot.style.opacity = '0.3';
+        infoDiv.textContent = `raw_x=${raw_x.toFixed(3)} raw_y=${raw_y.toFixed(3)} | screen: ${normX.toFixed(2)}, ${normY.toFixed(2)} | ${calibrated ? '已校准' : '未校准'}`;
+
+        // 记录 (仅决策阶段)
+        if (state === 'DECISION' && lastGaze.valid) {
+            gazeLog.push({
+                trial: currentTrial + 1,
+                time: Date.now() - trialStartTime,
+                gazeX: normX.toFixed(4),
+                gazeY: normY.toFixed(4),
+                raw_x: raw_x.toFixed(5),
+                raw_y: raw_y.toFixed(5),
+                valid: 1
+            });
         }
     }
 
@@ -339,6 +342,7 @@
         calibLimits.y_min = Math.min(...resY) - (resY[0] - Math.min(...resY)) * 0.4;
         calibLimits.y_max = Math.max(...resY) + (Math.max(...resY) - resY[0]) * 0.4;
 
+        calibrated = true;
         console.log('校准完成:', calibLimits);
         startTrials();
     }
