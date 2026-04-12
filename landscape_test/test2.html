@@ -508,17 +508,39 @@
                 }
             });
 
-            statusDiv.textContent = '③ 启动摄像头...';
+            statusDiv.textContent = '③ 加载模型中(约10秒)...';
+            debugDiv.textContent = '预热: 等待模型下载...';
+
+            // 预热: 用空白 canvas 触发模型加载，避免 send() 阻塞
+            const warmupCanvas = document.createElement('canvas');
+            warmupCanvas.width = 64;
+            warmupCanvas.height = 64;
+            warmupCanvas.getContext('2d').fillRect(0, 0, 64, 64);
+            
+            for (let i = 0; i < 3; i++) {
+                try {
+                    await faceMesh.send({ image: warmupCanvas });
+                    debugDiv.textContent = `预热: 模型已就绪 (${i+1}/3)`;
+                } catch(e) {
+                    debugDiv.textContent = `预热中... (${i+1}/3)`;
+                }
+                await sleep(500);
+            }
+            debugDiv.textContent = '预热完成, 启动摄像头...';
+
+            statusDiv.textContent = '④ 启动摄像头...';
 
             let camFrames = 0;
             camera = new Camera(videoElement, {
                 onFrame: async () => {
                     camFrames++;
-                    debugDiv.textContent = `📷cam:${camFrames} face:${frameCount} rx:${lastGaze.raw_x.toFixed(3)}`;
                     try {
                         await faceMesh.send({ image: videoElement });
                     } catch(e) {
-                        debugDiv.textContent = '❌ ' + e.message;
+                        // 忽略偶尔的帧错误
+                    }
+                    if (camFrames % 5 === 0) {
+                        debugDiv.textContent = `📷cam:${camFrames} face:${frameCount} rx:${lastGaze.raw_x.toFixed(3)}`;
                     }
                 },
                 facingMode: 'user',
@@ -529,7 +551,6 @@
 
             statusDiv.innerHTML = '✅ 摄像头就绪<br><br>请将手机放在支架上，保持正面<br><br>' +
                 '<button onclick="runCalibration()" style="padding:12px 40px; font-size:18px; border-radius:10px; border:none; background:#ffcc00; color:#111; cursor:pointer;">开始校准</button>';
-            debugDiv.textContent = '状态: 等待校准... 帧数将在检测到人脸后增加';
 
         } catch(e) {
             statusDiv.textContent = '❌ 初始化失败: ' + e.message;
