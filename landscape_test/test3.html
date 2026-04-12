@@ -92,7 +92,8 @@ function onResults(results) {
     const lx = Math.hypot(lms[468].x - lms[33].x, lms[468].y - lms[33].y) / (h_dist_lx + 1e-6);
     const h_dist_rx = Math.hypot(lms[263].x - lms[362].x, lms[263].y - lms[362].y);
     const rx = Math.hypot(lms[473].x - lms[362].x, lms[473].y - lms[362].y) / (h_dist_rx + 1e-6);
-    const raw_x = (lx + rx) / 2.0;
+    // 横屏前摄镜像修正: 翻转 X
+    const raw_x = 1.0 - (lx + rx) / 2.0;
 
     const leftEyeH = Math.hypot(lms[159].x - lms[145].x, lms[159].y - lms[145].y);
     const rightEyeH = Math.hypot(lms[386].x - lms[374].x, lms[386].y - lms[374].y);
