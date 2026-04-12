@@ -35,7 +35,16 @@
             width: 100vw; height: 100vh;
             position: relative;
         }
-        video { display: none; }
+        /* 调试: 显示摄像头预览在右下角 */
+        video {
+            position: fixed;
+            bottom: 40px; right: 10px;
+            width: 120px; height: 90px;
+            z-index: 9998;
+            border: 2px solid lime;
+            border-radius: 8px;
+            object-fit: cover;
+        }
 
         /* 注视点 - 无 transition，即时响应 */
         #gaze-dot {
@@ -508,14 +517,20 @@
 
             statusDiv.textContent = '③ 启动摄像头...';
 
+            let camFrames = 0;
             camera = new Camera(videoElement, {
                 onFrame: async () => {
+                    camFrames++;
+                    if (frameCount === 0 && camFrames % 30 === 0) {
+                        debugDiv.textContent = `📷 摄像头帧: ${camFrames} | 人脸帧: ${frameCount} (未检测到人脸，请正对摄像头)`;
+                    }
                     try {
                         await faceMesh.send({ image: videoElement });
                     } catch(e) {
                         debugDiv.textContent = '❌ send错误: ' + e.message;
                     }
                 },
+                facingMode: 'user',
                 width: 640,
                 height: 480
             });
