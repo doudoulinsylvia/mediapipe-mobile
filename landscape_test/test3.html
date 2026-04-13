@@ -121,20 +121,24 @@ function median(arr) {
 
 function mapX(rx) {
     const { x_min, x_max, x_center } = calibLimits;
+    let px;
     if (rx < x_center) {
-        return Math.max(0, (rx-x_min)/(x_center-x_min+1e-6)) * (canvas.width/2);
+        px = Math.max(0, (rx-x_min)/(x_center-x_min+1e-6)) * (canvas.width/2);
     } else {
-        return canvas.width/2 + Math.min(1, (rx-x_center)/(x_max-x_center+1e-6)) * (canvas.width/2);
+        px = canvas.width/2 + Math.min(1, (rx-x_center)/(x_max-x_center+1e-6)) * (canvas.width/2);
     }
+    return Math.max(0, Math.min(canvas.width, px));
 }
 
 function mapY(ry) {
     const { y_min, y_max, y_center } = calibLimits;
+    let py;
     if (ry < y_center) {
-        return Math.max(0, (ry-y_min)/(y_center-y_min+1e-6)) * (canvas.height/2);
+        py = Math.max(0, (ry-y_min)/(y_center-y_min+1e-6)) * (canvas.height/2);
     } else {
-        return canvas.height/2 + Math.min(1, (ry-y_center)/(y_max-y_center+1e-6)) * (canvas.height/2);
+        py = canvas.height/2 + Math.min(1, (ry-y_center)/(y_max-y_center+1e-6)) * (canvas.height/2);
     }
+    return Math.max(0, Math.min(canvas.height, py));
 }
 
 // ============================================================
@@ -274,11 +278,11 @@ async function calibrate() {
     calibCurrentPoint = null;
 
     calibLimits.x_center = calibResX[0];
-    calibLimits.x_min = Math.min(...calibResX) - (calibResX[0] - Math.min(...calibResX)) * 0.4;
-    calibLimits.x_max = Math.max(...calibResX) + (Math.max(...calibResX) - calibResX[0]) * 0.4;
+    calibLimits.x_min = Math.min(...calibResX) - (calibResX[0] - Math.min(...calibResX)) * 0.6;
+    calibLimits.x_max = Math.max(...calibResX) + (Math.max(...calibResX) - calibResX[0]) * 0.6;
     calibLimits.y_center = calibResY[0];
-    calibLimits.y_min = Math.min(...calibResY) - (calibResY[0] - Math.min(...calibResY)) * 0.4;
-    calibLimits.y_max = Math.max(...calibResY) + (Math.max(...calibResY) - calibResY[0]) * 0.4;
+    calibLimits.y_min = Math.min(...calibResY) - (calibResY[0] - Math.min(...calibResY)) * 0.6;
+    calibLimits.y_max = Math.max(...calibResY) + (Math.max(...calibResY) - calibResY[0]) * 0.6;
     
     calibrated = true;
     runTrials();
