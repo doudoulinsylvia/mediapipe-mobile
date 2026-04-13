@@ -45,7 +45,7 @@ let calibLimits = { x_min: 0.3, x_max: 0.7, x_center: 0.5, y_min: -0.1, y_max: 0
 let calibrated = false;
 let frameCount = 0;
 let displayGX = 0, displayGY = 0; // EMA 显示位置
-const EMA_ALPHA = 0.35; // 0=慢(稳), 1=快(抖)
+const EMA_ALPHA = 0.5; // 加快响应 (0=慢, 1=即时)
 
 // 食物图片 (预加载 20张, 10试次×2)
 const NUM_TRIALS = 10;
@@ -110,19 +110,11 @@ function onResults(results) {
     lastGaze.raw_x = raw_x;
     lastGaze.raw_y = raw_y;
 
-    // 异常帧过滤: 如果新值与最近中位数差太多, 跳过
-    if (rawXBuffer.length >= 3) {
-        const med = median(rawXBuffer.slice(-5));
-        if (Math.abs(raw_x - med) > 0.08) {
-            // 跳过这个异常帧, 不加入 buffer
-            return;
-        }
-    }
-
+    // 直接加入 buffer (不做异常过滤, 因为左右扫视是正常行为)
     rawXBuffer.push(raw_x);
-    if (rawXBuffer.length > 15) rawXBuffer.shift();
+    if (rawXBuffer.length > 12) rawXBuffer.shift();
     rawYBuffer.push(raw_y);
-    if (rawYBuffer.length > 15) rawYBuffer.shift();
+    if (rawYBuffer.length > 12) rawYBuffer.shift();
 
     debugDiv.textContent = `f:${frameCount} rx:${raw_x.toFixed(3)} ry:${raw_y.toFixed(3)} v:${lastGaze.valid?'Y':'N'}`;
 }
@@ -222,13 +214,12 @@ function draw() {
     }
 
     // 画注视点 (始终画)
-    if (frameCount > 0 && lastGaze.valid && rawXBuffer.length >= 2) {
-        const sX = rawXBuffer.slice(-5);
-        const sY = rawYBuffer.slice(-5);
-        const avgX = sX.reduce((a,b)=>a+b,0) / sX.length;
-        const avgY = sY.reduce((a,b)=>a+b,0) / sY.length;
-        const gx = mapX(avgX);
-        const gy = mapY(avgY);
+    if (frameCount > 0 && lastGaze.valid && rawXBuffer.length >= 3) {
+        // 用中位数(而非均值)来平滑, 天然抗器堋值且不阻挡扫视
+        const medX = median(rawXBuffer.slice(-5));
+        const medY = median(rawYBuffer.slice(-5));
+        const gx = mapX(medX);
+        const gy = mapY(medY);
 
         // EMA 平滑显示位置
         if (displayGX === 0 && displayGY === 0) {
