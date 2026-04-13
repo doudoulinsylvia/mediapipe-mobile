@@ -45,11 +45,15 @@ let calibLimits = { x_min: 0.3, x_max: 0.7, x_center: 0.5, y_min: -0.1, y_max: 0
 let calibrated = false;
 let frameCount = 0;
 
-// 食物图片 (预加载)
-const foodImages = {};
-const imgList = ['1.jpg','2.jpg','3.jpg','4.jpg','5.jpg','6.jpg'];
-let imagesLoaded = 0;
+// 食物图片 (预加载 20张, 10试次×2)
+const NUM_TRIALS = 10;
 const IMG_DIR = '../food2/images/';
+const foodImages = {};
+// 随机选 20 张不重复的图片
+const allIds = Array.from({length:200}, (_,i) => i+1);
+for (let i = allIds.length-1; i > 0; i--) { const j = Math.floor(Math.random()*(i+1)); [allIds[i],allIds[j]]=[allIds[j],allIds[i]]; }
+const imgList = allIds.slice(0, NUM_TRIALS * 2).map(id => `${id}.jpg`);
+let imagesLoaded = 0;
 
 function preloadImages() {
     imgList.forEach(name => {
@@ -61,12 +65,11 @@ function preloadImages() {
 }
 preloadImages();
 
-// 试次
-const trials = [
-    { left: '1.jpg', right: '2.jpg' },
-    { left: '3.jpg', right: '4.jpg' },
-    { left: '5.jpg', right: '6.jpg' }
-];
+// 试次 (动态生成)
+const trials = [];
+for (let i = 0; i < NUM_TRIALS; i++) {
+    trials.push({ left: imgList[i*2], right: imgList[i*2+1] });
+}
 let currentTrial = -1; // -1=等待校准, 0-2=试次
 let trialStartTime = 0;
 let gazeLog = [];
@@ -292,7 +295,7 @@ async function calibrate() {
 // 试次
 // ============================================================
 async function runTrials() {
-    for (currentTrial = 0; currentTrial < trials.length; currentTrial++) {
+    for (currentTrial = 0; currentTrial < NUM_TRIALS; currentTrial++) {
         phase = 'FIXATION';
         await sleep(800);
         phase = 'DECISION';
