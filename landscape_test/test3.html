@@ -71,6 +71,7 @@ let currentTrial = -1; // -1=等待校准, 0-2=试次
 let trialStartTime = 0;
 let gazeLog = [];
 let phase = 'LOADING'; // LOADING, READY, CALIBRATING, FIXATION, DECISION, DONE
+let calibCurrentPoint = null; // 当前校准点 {x, y, index, total}
 
 // ============================================================
 // onResults (完全复刻 food3_formal)
@@ -155,8 +156,17 @@ function draw() {
     } else if (phase === 'READY') {
         drawText('✅ 摄像头就绪', canvas.width/2, canvas.height/2 - 40, 24);
         drawText('点击屏幕开始校准', canvas.width/2, canvas.height/2 + 20, 18, '#aaa');
-    } else if (phase === 'CALIBRATING') {
-        // 由 calibrate() 控制
+    } else if (phase === 'CALIBRATING' && calibCurrentPoint) {
+        // 画校准黄点
+        ctx.beginPath();
+        ctx.arc(calibCurrentPoint.x * canvas.width, calibCurrentPoint.y * canvas.height, 18, 0, Math.PI*2);
+        ctx.fillStyle = '#ffcc00';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(calibCurrentPoint.x * canvas.width, calibCurrentPoint.y * canvas.height, 5, 0, Math.PI*2);
+        ctx.fillStyle = '#111';
+        ctx.fill();
+        drawText(`请注视黄点 (${calibCurrentPoint.index}/${calibCurrentPoint.total})`, canvas.width/2, canvas.height - 40, 16, '#888');
     } else if (phase === 'FIXATION') {
         drawText('+', canvas.width/2, canvas.height/2, 60, '#ffcc00');
     } else if (phase === 'DECISION') {
@@ -195,8 +205,8 @@ function draw() {
 
     // 画注视点 (始终画)
     if (frameCount > 0 && lastGaze.valid) {
-        const sX = rawXBuffer.slice(-3);
-        const sY = rawYBuffer.slice(-3);
+        const sX = rawXBuffer.slice(-2);
+        const sY = rawYBuffer.slice(-2);
         const avgX = sX.reduce((a,b)=>a+b,0) / sX.length;
         const avgY = sY.reduce((a,b)=>a+b,0) / sY.length;
         const gx = mapX(avgX);
@@ -249,17 +259,8 @@ async function calibrate() {
     
     for (let i = 0; i < calibPoints.length; i++) {
         const cp = calibPoints[i];
-        // 画校准点
-        const drawCalibDot = () => {
-            ctx.fillStyle = '#111';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.beginPath();
-            ctx.arc(cp.x * canvas.width, cp.y * canvas.height, 18, 0, Math.PI*2);
-            ctx.fillStyle = '#ffcc00';
-            ctx.fill();
-            drawText(`请注视黄点 (${i+1}/${calibPoints.length})`, canvas.width/2, canvas.height - 40, 16, '#888');
-        };
-        drawCalibDot();
+        // 设置当前校准点 (draw loop 会渲染)
+        calibCurrentPoint = { x: cp.x, y: cp.y, index: i+1, total: calibPoints.length };
         
         await sleep(1200);
         rawXBuffer = []; rawYBuffer = [];
@@ -270,6 +271,7 @@ async function calibrate() {
         calibResX.push(cx);
         calibResY.push(cy);
     }
+    calibCurrentPoint = null;
 
     calibLimits.x_center = calibResX[0];
     calibLimits.x_min = Math.min(...calibResX) - (calibResX[0] - Math.min(...calibResX)) * 0.4;
