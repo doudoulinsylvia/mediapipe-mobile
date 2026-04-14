@@ -78,7 +78,8 @@ for (let i = 0; i < NUM_TRIALS; i++) {
 let currentTrial = -1; // -1=等待校准, 0-2=试次
 let trialStartTime = 0;
 let gazeLog = [];
-let phase = 'LOADING'; // LOADING, READY, CALIBRATING, FIXATION, DECISION, DONE
+let phase = 'LOADING'; // LOADING, READY, CALIBRATING, FIXATION, DECISION, BREAK, DONE
+let breakResolve = null; // 用于休息阶段的 Promise resolve
 let calibCurrentPoint = null; // 当前校准点 {x, y, index, total}
 
 // ============================================================
@@ -180,6 +181,10 @@ function draw() {
         ctx.fillStyle = '#111';
         ctx.fill();
         drawText(`请注视黄点 (${calibCurrentPoint.index}/${calibCurrentPoint.total})`, canvas.width/2, canvas.height - 40, 16, '#888');
+    } else if (phase === 'BREAK') {
+        drawText('☕ 休息一下', canvas.width/2, canvas.height/2 - 50, 28);
+        drawText(`已完成 ${currentTrial}/${NUM_TRIALS} 试次`, canvas.width/2, canvas.height/2, 18, '#aaa');
+        drawText('点击屏幕继续（将重新校准）', canvas.width/2, canvas.height/2 + 50, 18, '#ffcc00');
     } else if (phase === 'FIXATION') {
         drawText('+', canvas.width/2, canvas.height/2, 60, '#ffcc00');
     } else if (phase === 'DECISION') {
@@ -309,6 +314,12 @@ async function calibrate() {
 // ============================================================
 async function runTrials() {
     for (currentTrial = 0; currentTrial < NUM_TRIALS; currentTrial++) {
+        // 每50试次休息一次并重新校准
+        if (currentTrial > 0 && currentTrial % 50 === 0) {
+            phase = 'BREAK';
+            await waitBreak();
+            await calibrate();
+        }
         phase = 'FIXATION';
         await sleep(800);
         phase = 'DECISION';
@@ -318,6 +329,12 @@ async function runTrials() {
         trials[currentTrial].rt = Date.now() - trialStartTime;
     }
     phase = 'DONE';
+}
+
+function waitBreak() {
+    return new Promise(resolve => {
+        breakResolve = resolve;
+    });
 }
 
 function waitChoice() {
@@ -340,6 +357,9 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 canvas.addEventListener('click', () => {
     if (phase === 'READY') {
         calibrate();
+    } else if (phase === 'BREAK' && breakResolve) {
+        breakResolve();
+        breakResolve = null;
     } else if (phase === 'DONE') {
         downloadData();
     }
