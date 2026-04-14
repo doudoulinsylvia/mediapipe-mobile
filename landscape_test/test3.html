@@ -114,11 +114,13 @@ function onResults(results) {
     lastGaze.raw_x = raw_x;
     lastGaze.raw_y = raw_y;
 
-    // 直接加入 buffer (不做异常过滤, 因为左右扫视是正常行为)
-    rawXBuffer.push(raw_x);
-    if (rawXBuffer.length > 12) rawXBuffer.shift();
-    rawYBuffer.push(raw_y);
-    if (rawYBuffer.length > 12) rawYBuffer.shift();
+    // 只在眼睛睁开时加入 buffer，过滤眨眼噪声
+    if (lastGaze.valid) {
+        rawXBuffer.push(raw_x);
+        if (rawXBuffer.length > 12) rawXBuffer.shift();
+        rawYBuffer.push(raw_y);
+        if (rawYBuffer.length > 12) rawYBuffer.shift();
+    }
 
     debugDiv.textContent = `f:${frameCount} rx:${raw_x.toFixed(3)} ry:${raw_y.toFixed(3)} v:${lastGaze.valid?'Y':'N'}`;
 }
@@ -284,15 +286,24 @@ async function calibrate() {
     
     for (let i = 0; i < calibPoints.length; i++) {
         const cp = calibPoints[i];
-        // 设置当前校准点 (draw loop 会渲染)
         calibCurrentPoint = { x: cp.x, y: cp.y, index: i+1, total: calibPoints.length };
         
-        await sleep(1200);
-        rawXBuffer = []; rawYBuffer = [];
-        await sleep(600);
+        // 等被试注视到校准点位置
+        await sleep(1000);
         
-        const cx = rawXBuffer.length >= 3 ? median(rawXBuffer) : lastGaze.raw_x;
-        const cy = rawYBuffer.length >= 3 ? median(rawYBuffer) : lastGaze.raw_y;
+        // 采集有效帧：至少5帧，最多等3秒
+        const samplesX = [], samplesY = [];
+        const deadline = Date.now() + 3000;
+        while (samplesX.length < 5 && Date.now() < deadline) {
+            await sleep(50);
+            if (lastGaze.valid) {
+                samplesX.push(lastGaze.raw_x);
+                samplesY.push(lastGaze.raw_y);
+            }
+        }
+        
+        const cx = samplesX.length >= 3 ? median(samplesX) : lastGaze.raw_x;
+        const cy = samplesY.length >= 3 ? median(samplesY) : lastGaze.raw_y;
         calibResX.push(cx);
         calibResY.push(cy);
     }
