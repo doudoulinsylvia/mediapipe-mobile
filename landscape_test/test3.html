@@ -47,14 +47,14 @@ let frameCount = 0;
 let displayGX = 0, displayGY = 0; // EMA 显示位置
 const EMA_ALPHA = 0.5; // 加快响应 (0=慢, 1=即时)
 
-// 食物图片 (预加载 40张, 20试次×2)
-const NUM_TRIALS = 20;
+// 食物图片 (预加载 300张, 150试次×2)
+const NUM_TRIALS = 150;
 const IMG_DIR = '../food2/images/';
 const foodImages = {};
-// 随机选 20 张不重复的图片
+// 随机打乱 200 张图片，全部预加载
 const allIds = Array.from({length:200}, (_,i) => i+1);
 for (let i = allIds.length-1; i > 0; i--) { const j = Math.floor(Math.random()*(i+1)); [allIds[i],allIds[j]]=[allIds[j],allIds[i]]; }
-const imgList = allIds.slice(0, NUM_TRIALS * 2).map(id => `${id}.jpg`);
+const imgList = allIds.map(id => `${id}.jpg`);
 let imagesLoaded = 0;
 
 function preloadImages() {
@@ -67,10 +67,13 @@ function preloadImages() {
 }
 preloadImages();
 
-// 试次 (动态生成)
+// 试次 (动态生成, 每试次随机抽两张不同图片)
 const trials = [];
 for (let i = 0; i < NUM_TRIALS; i++) {
-    trials.push({ left: imgList[i*2], right: imgList[i*2+1] });
+    const a = Math.floor(Math.random() * imgList.length);
+    let b = Math.floor(Math.random() * (imgList.length - 1));
+    if (b >= a) b++;
+    trials.push({ left: imgList[a], right: imgList[b] });
 }
 let currentTrial = -1; // -1=等待校准, 0-2=试次
 let trialStartTime = 0;
