@@ -1,107 +1,20 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Mobile Food 2AFC Experiment</title>
-  <link rel="stylesheet" href="style.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-
-  <!-- MediaPipe Solutions -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>实验已结束</title>
+  <style>
+    body { margin:0; height:100vh; display:flex; align-items:center; justify-content:center;
+      background:#111; color:#fff; font-family:sans-serif; text-align:center; }
+    h1 { font-size:24px; margin-bottom:10px; }
+    p { color:#888; font-size:16px; }
+  </style>
 </head>
-
 <body>
-  <!-- 微信提示 -->
-  <div id="wechat-prompt" class="wechat-prompt">
-    ⚠️ 微信内可能受限，请点击右上角选择“在浏览器中打开”
+  <div>
+    <h1>🔒 实验已结束</h1>
+    <p>感谢您的关注，本实验已停止数据收集。</p>
   </div>
-
-  <!-- 背景视频 (隐藏或小窗) -->
-  <div class="video-container">
-    <video id="input_video" playsinline webkit-playsinline></video>
-  </div>
-
-  <!-- 被试信息登记 -->
-  <div id="registration-overlay" class="overlay">
-    <div class="modal">
-      <h2>实验登记</h2>
-      <div class="form-group">
-        <label>ID</label>
-        <input type="text" id="subject-id" placeholder="例如: 01">
-      </div>
-      <div class="form-group">
-        <label>姓名</label>
-        <input type="text" id="subject-name" placeholder="小明">
-      </div>
-      <div class="form-group">
-        <label>标签 (Label)</label>
-        <input type="text" id="subject-label" placeholder="baseline">
-      </div>
-      <div class="form-group">
-        <label>性别</label>
-        <select id="subject-gender">
-          <option value="male">男</option>
-          <option value="female">女</option>
-        </select>
-      </div>
-      <p>请确保网络连接正常</p>
-      <button id="start-btn" type="button">开始实验</button>
-    </div>
-  </div>
-
-  <!-- 实验主画布 -->
-  <canvas id="experiment-canvas"></canvas>
-
-  <!-- 状态叠加层 (调试用) -->
-  <div id="debug-overlay" class="debug-overlay">
-    <div class="status-card">
-      <span class="status-title">系统状态</span>
-      <span id="status" class="status-value">资源加载中...</span>
-    </div>
-  </div>
-
-  <!-- 数据下载面板 (实验结束后显示) -->
-  <div id="download-overlay" class="overlay" style="display:none;">
-    <div class="modal">
-      <h2>✅ 实验完成！</h2>
-      <p id="download-summary">正在准备数据...</p>
-      <div style="display:flex;flex-direction:column;gap:12px;margin-top:16px;">
-        <button id="dl-rating" class="dl-btn" style="display:none;">📊 下载评分数据</button>
-        <button id="dl-behavior" class="dl-btn" style="display:none;">🧠 下载行为数据</button>
-        <button id="dl-gaze" class="dl-btn" style="display:none;">👁 下载眼动数据</button>
-      </div>
-      <p style="margin-top:16px;font-size:13px;color:#888;">请逐个点击按钮下载，然后将文件发送给主试</p>
-
-      <!-- 抽奖按钮 -->
-      <hr style="margin:20px 0;border-color:#eee;">
-      <button id="lottery-btn" class="dl-btn" style="background:#ff6b35;color:#fff;font-size:17px;">🎁 揭晓抽奖结果</button>
-    </div>
-  </div>
-
-  <!-- 抽奖结果弹窗 -->
-  <div id="lottery-overlay" class="overlay" style="display:none;">
-    <div class="modal" style="text-align:center;">
-      <h2>🎊 恭喜您！</h2>
-      <p id="lottery-trial" style="font-size:14px;color:#888;margin:8px 0;"></p>
-      <p style="font-size:16px;margin-bottom:16px;">您在该轮次中选择了这道食物：</p>
-      <canvas id="lottery-canvas" style="width:220px;height:220px;border-radius:12px;border:3px solid #ff6b35;display:block;margin:0 auto;"></canvas>
-      <p id="lottery-imgname" style="font-size:13px;color:#888;margin-top:8px;"></p>
-      <p style="margin-top:16px;font-size:15px;color:#333;">请将此页面展示给主试，<br>领取您的奖励食物！🍕</p>
-    </div>
-  </div>
-
-  <!-- 加载层 -->
-  <div id="loading-overlay" class="loading-overlay">
-    <p id="loading-text">正在载入 MediaPipe 和图片资源...</p>
-  </div>
-
-  <script src="script.js?v=march12-ycalib2"></script>
 </body>
-
 </html>
