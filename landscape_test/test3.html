@@ -47,10 +47,12 @@ let frameCount = 0;
 let displayGX = 0, displayGY = 0; // EMA 显示位置
 const EMA_ALPHA = 0.5; // 加快响应 (0=慢, 1=即时)
 
-// 食物图片 (预加载 300张, 150试次×2)
+// 实验参数
 const NUM_TRIALS = 150;
+const RATING_COUNT = 200;
 const IMG_DIR = '../food2/images/';
 const foodImages = {};
+
 // 随机打乱 200 张图片，全部预加载
 const allIds = Array.from({length:200}, (_,i) => i+1);
 for (let i = allIds.length-1; i > 0; i--) { const j = Math.floor(Math.random()*(i+1)); [allIds[i],allIds[j]]=[allIds[j],allIds[i]]; }
@@ -67,20 +69,22 @@ function preloadImages() {
 }
 preloadImages();
 
-// 试次 (动态生成, 每试次随机抽两张不同图片)
-const trials = [];
-for (let i = 0; i < NUM_TRIALS; i++) {
-    const a = Math.floor(Math.random() * imgList.length);
-    let b = Math.floor(Math.random() * (imgList.length - 1));
-    if (b >= a) b++;
-    trials.push({ left: imgList[a], right: imgList[b] });
-}
-let currentTrial = -1; // -1=等待校准, 0-2=试次
+// 评分阶段
+let ratingImages = [...imgList]; // 200 张图片
+let currentRatingIndex = 0;
+let ratingLog = [];
+let ratingStartTime = 0;
+
+// 二元选择阶段
+let trials = [];
+let currentTrial = -1;
 let trialStartTime = 0;
 let gazeLog = [];
-let phase = 'LOADING'; // LOADING, READY, CALIBRATING, FIXATION, DECISION, BREAK, DONE
-let breakResolve = null; // 用于休息阶段的 Promise resolve
-let calibCurrentPoint = null; // 当前校准点 {x, y, index, total}
+
+// 状态控制
+let phase = 'LOADING';
+let breakResolve = null;
+let calibCurrentPoint = null;
 
 // ============================================================
 // onResults (完全复刻 food3_formal)
@@ -187,40 +191,60 @@ function draw() {
         drawText('☕ 休息一下', canvas.width/2, canvas.height/2 - 50, 28);
         drawText(`已完成 ${currentTrial}/${NUM_TRIALS} 试次`, canvas.width/2, canvas.height/2, 18, '#aaa');
         drawText('点击屏幕继续（将重新校准）', canvas.width/2, canvas.height/2 + 50, 18, '#ffcc00');
+    } else if (phase === 'RATING_FIXATION') {
+        drawText('+', canvas.width/2, canvas.height/2, 60, '#ffcc00');
+        drawText(`评分阶段 ${currentRatingIndex+1}/${RATING_COUNT}`, canvas.width/2, 25, 14, '#666');
+    } else if (phase === 'RATING_DECISION') {
+        // 横屏评分: 图片居中偏左, 按钮在右侧
+        const id = ratingImages[currentRatingIndex];
+        const imgSize = canvas.height * 0.65;
+        const imgX = canvas.width * 0.05;
+        const imgY = (canvas.height - imgSize) / 2;
+        const img = foodImages[id];
+        if (img && img.complete) {
+            ctx.drawImage(img, imgX, imgY, imgSize, imgSize);
+        } else {
+            ctx.fillStyle = '#333'; ctx.fillRect(imgX, imgY, imgSize, imgSize);
+        }
+        drawText(`评分 ${currentRatingIndex+1}/${RATING_COUNT}`, canvas.width/2, 25, 14, '#666');
+        drawText('请打分 (1=不喜欢, 10=极其喜欢)', canvas.width * 0.65, imgY - 5, 13, '#aaa');
+        // 画 10 个按钮 (2行×5列, 在右侧)
+        const btns = getRatingBtnCoords();
+        for (let btn of btns) {
+            ctx.fillStyle = '#333';
+            ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
+            ctx.strokeStyle = '#666'; ctx.lineWidth = 1;
+            ctx.strokeRect(btn.x, btn.y, btn.w, btn.h);
+            drawText(btn.val.toString(), btn.x + btn.w/2, btn.y + btn.h/2, 18, '#fff');
+        }
+    } else if (phase === 'PHASE1_END') {
+        drawText('✅ 评分阶段完成！', canvas.width/2, canvas.height/2 - 40, 26);
+        drawText('接下来进入二元选择阶段', canvas.width/2, canvas.height/2 + 10, 18, '#aaa');
+        drawText('点击屏幕继续（将重新校准）', canvas.width/2, canvas.height/2 + 60, 18, '#ffcc00');
     } else if (phase === 'FIXATION') {
         drawText('+', canvas.width/2, canvas.height/2, 60, '#ffcc00');
+        drawText(`选择阶段 ${currentTrial+1}/${NUM_TRIALS}`, canvas.width/2, 25, 14, '#666');
     } else if (phase === 'DECISION') {
-        // 画左右食物图
         const t = trials[currentTrial];
         const imgW = canvas.width * 0.35;
         const imgH = canvas.height * 0.7;
         const yOff = canvas.height * 0.15;
-        
         if (foodImages[t.left] && foodImages[t.left].complete) {
             ctx.drawImage(foodImages[t.left], canvas.width*0.05, yOff, imgW, imgH);
         }
         if (foodImages[t.right] && foodImages[t.right].complete) {
             ctx.drawImage(foodImages[t.right], canvas.width*0.6, yOff, imgW, imgH);
         }
-
-        // 选择按钮
         ctx.fillStyle = '#2a6bff';
         ctx.fillRect(canvas.width*0.075, canvas.height*0.88, canvas.width*0.35, 40);
         drawText('⬅ 选左边', canvas.width*0.25, canvas.height*0.88+22, 16, '#fff');
-
         ctx.fillStyle = '#ff4444';
         ctx.fillRect(canvas.width*0.575, canvas.height*0.88, canvas.width*0.35, 40);
         drawText('➡ 选右边', canvas.width*0.75, canvas.height*0.88+22, 16, '#fff');
+        drawText(`选择阶段 ${currentTrial+1}/${NUM_TRIALS}`, canvas.width/2, 25, 14, '#666');
     } else if (phase === 'DONE') {
-        drawText('测试完成！', canvas.width/2, canvas.height/2 - 60, 28);
-        for (let i = 0; i < trials.length; i++) {
-            const tg = gazeLog.filter(g => g.trial === i);
-            const leftPct = tg.length > 0 ? (tg.filter(g=>g.gazeX<0.5).length/tg.length*100).toFixed(0) : '-';
-            const rightPct = tg.length > 0 ? (tg.filter(g=>g.gazeX>=0.5).length/tg.length*100).toFixed(0) : '-';
-            drawText(`Trial ${i+1}: 选${trials[i].choice||'?'} | 左看${leftPct}% 右看${rightPct}%`, 
-                canvas.width/2, canvas.height/2 - 10 + i*30, 16, '#ccc');
-        }
-        drawText('点击下载数据', canvas.width/2, canvas.height/2 + 100, 18, '#ffcc00');
+        drawText('✅ 实验完成！感谢参与', canvas.width/2, canvas.height/2 - 30, 26);
+        drawText('点击屏幕下载数据', canvas.width/2, canvas.height/2 + 30, 18, '#ffcc00');
     }
 
     // 画注视点 (始终画)
@@ -247,11 +271,13 @@ function draw() {
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // 记录
-        if (phase === 'DECISION') {
+        // 记录 (评分 + 二元选择阶段都记录)
+        if (phase === 'DECISION' || phase === 'RATING_DECISION') {
+            const isRating = phase === 'RATING_DECISION';
             gazeLog.push({
-                trial: currentTrial,
-                time: Date.now() - trialStartTime,
+                phase: isRating ? 'rating' : 'choice',
+                trial: isRating ? currentRatingIndex : currentTrial,
+                time: Date.now() - (isRating ? ratingStartTime : trialStartTime),
                 gazeX: (gx / canvas.width).toFixed(4),
                 gazeY: (gy / canvas.height).toFixed(4),
                 raw_x: lastGaze.raw_x.toFixed(5),
@@ -317,15 +343,141 @@ async function calibrate() {
     calibLimits.y_max = Math.max(...calibResY) + (Math.max(...calibResY) - calibResY[0]) * 0.6;
     
     calibrated = true;
-    runTrials();
 }
 
 // ============================================================
-// 试次
+// 评分按钮坐标 (横屏: 2行×5列, 在图片右侧)
+// ============================================================
+function getRatingBtnCoords() {
+    const btnW = Math.min(canvas.width * 0.08, 70);
+    const btnH = Math.min(canvas.height * 0.18, 55);
+    const gap = 8;
+    const cols = 5;
+    const totalW = cols * btnW + (cols-1) * gap;
+    const startX = canvas.width * 0.42;
+    const startY = (canvas.height - (2 * btnH + gap)) / 2;
+    const btns = [];
+    for (let i = 0; i < 10; i++) {
+        const r = Math.floor(i / cols);
+        const c = i % cols;
+        btns.push({
+            x: startX + c * (btnW + gap),
+            y: startY + r * (btnH + gap),
+            w: btnW, h: btnH,
+            val: i + 1
+        });
+    }
+    return btns;
+}
+
+// ============================================================
+// 主实验流程
+// ============================================================
+async function runExperiment() {
+    // 阶段一: 评分 (200张)
+    await runRatings();
+
+    // 过渡页
+    phase = 'PHASE1_END';
+    await waitClick();
+
+    // 根据评分生成二元选择配对
+    generateCombinations();
+
+    // 重新校准
+    await calibrate();
+
+    // 阶段二: 二元选择 (150试次, 每50休息+校准)
+    await runTrials();
+
+    phase = 'DONE';
+}
+
+// ============================================================
+// 阶段一: 评分
+// ============================================================
+async function runRatings() {
+    for (currentRatingIndex = 0; currentRatingIndex < RATING_COUNT; currentRatingIndex++) {
+        phase = 'RATING_FIXATION';
+        await sleep(500 + Math.random() * 300);
+        phase = 'RATING_DECISION';
+        ratingStartTime = Date.now();
+        const rating = await waitRating();
+        const rt = Date.now() - ratingStartTime;
+        ratingLog.push({
+            image: ratingImages[currentRatingIndex],
+            rating: rating,
+            rt: rt
+        });
+    }
+}
+
+function waitRating() {
+    return new Promise(resolve => {
+        function handler(e) {
+            const rect = canvas.getBoundingClientRect();
+            const tx = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const ty = (e.clientY - rect.top) * (canvas.height / rect.height);
+            const btns = getRatingBtnCoords();
+            for (let btn of btns) {
+                if (tx >= btn.x && tx <= btn.x + btn.w && ty >= btn.y && ty <= btn.y + btn.h) {
+                    canvas.removeEventListener('click', handler);
+                    resolve(btn.val);
+                    return;
+                }
+            }
+        }
+        canvas.addEventListener('click', handler);
+    });
+}
+
+// ============================================================
+// 基于评分生成二元选择配对 (复刻 food2 逻辑)
+// ============================================================
+function generateCombinations() {
+    const ratingGroups = {};
+    for (let item of ratingLog) {
+        if (!ratingGroups[item.rating]) ratingGroups[item.rating] = [];
+        ratingGroups[item.rating].push(item.image);
+    }
+    const uniqueRatings = Object.keys(ratingGroups).map(Number);
+    if (uniqueRatings.length < 2) {
+        alert('评分全部相同，无法生成对比配对，将随机配对。');
+        for (let k = 0; k < NUM_TRIALS; k++) {
+            const a = Math.floor(Math.random() * imgList.length);
+            let b = Math.floor(Math.random() * (imgList.length - 1));
+            if (b >= a) b++;
+            trials.push({ left: imgList[a], right: imgList[b], left_rating: 0, right_rating: 0 });
+        }
+        return;
+    }
+    // 生成所有不同评分的两两排列
+    const perms = [];
+    for (let i = 0; i < uniqueRatings.length; i++) {
+        for (let j = 0; j < uniqueRatings.length; j++) {
+            if (i !== j) perms.push([uniqueRatings[i], uniqueRatings[j]]);
+        }
+    }
+    perms.sort(() => Math.random() - 0.5);
+    trials = [];
+    for (let k = 0; k < NUM_TRIALS; k++) {
+        const p = perms[Math.floor(Math.random() * perms.length)];
+        const leftImages = ratingGroups[p[0]];
+        const rightImages = ratingGroups[p[1]];
+        trials.push({
+            left: leftImages[Math.floor(Math.random() * leftImages.length)],
+            right: rightImages[Math.floor(Math.random() * rightImages.length)],
+            left_rating: p[0],
+            right_rating: p[1]
+        });
+    }
+}
+
+// ============================================================
+// 阶段二: 二元选择
 // ============================================================
 async function runTrials() {
     for (currentTrial = 0; currentTrial < NUM_TRIALS; currentTrial++) {
-        // 每50试次休息一次并重新校准
         if (currentTrial > 0 && currentTrial % 50 === 0) {
             phase = 'BREAK';
             await waitBreak();
@@ -339,12 +491,16 @@ async function runTrials() {
         trials[currentTrial].choice = choice;
         trials[currentTrial].rt = Date.now() - trialStartTime;
     }
-    phase = 'DONE';
 }
 
 function waitBreak() {
+    return new Promise(resolve => { breakResolve = resolve; });
+}
+
+function waitClick() {
     return new Promise(resolve => {
-        breakResolve = resolve;
+        function handler() { canvas.removeEventListener('click', handler); resolve(); }
+        canvas.addEventListener('click', handler);
     });
 }
 
@@ -363,11 +519,11 @@ function waitChoice() {
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ============================================================
-// 触摸/点击事件
+// 触摸/点击事件 (启动 + 休息)
 // ============================================================
 canvas.addEventListener('click', () => {
     if (phase === 'READY') {
-        calibrate();
+        calibrate().then(() => runExperiment());
     } else if (phase === 'BREAK' && breakResolve) {
         breakResolve();
         breakResolve = null;
@@ -376,13 +532,31 @@ canvas.addEventListener('click', () => {
     }
 });
 
+// ============================================================
+// 数据下载
+// ============================================================
 function downloadData() {
-    const csv = 'trial,time_ms,gazeX,gazeY,raw_x,raw_y\n' +
-        gazeLog.map(g => `${g.trial},${g.time},${g.gazeX},${g.gazeY},${g.raw_x},${g.raw_y}`).join('\n');
-    const blob = new Blob([csv], {type:'text/csv'});
+    // 1. 注视数据
+    const gazeCsv = 'phase,trial,time_ms,gazeX,gazeY,raw_x,raw_y\n' +
+        gazeLog.map(g => `${g.phase},${g.trial},${g.time},${g.gazeX},${g.gazeY},${g.raw_x},${g.raw_y}`).join('\n');
+    downloadFile(gazeCsv, `landscape_gaze_${Date.now()}.csv`);
+
+    // 2. 评分数据
+    const ratingCsv = 'image,rating,rt_ms\n' +
+        ratingLog.map(r => `${r.image},${r.rating},${r.rt}`).join('\n');
+    downloadFile(ratingCsv, `landscape_rating_${Date.now()}.csv`);
+
+    // 3. 行为数据
+    const behavCsv = 'trial,left_img,right_img,left_rating,right_rating,choice,rt_ms\n' +
+        trials.map((t,i) => `${i+1},${t.left},${t.right},${t.left_rating||''},${t.right_rating||''},${t.choice||''},${t.rt?t.rt.toFixed(0):''}`).join('\n');
+    downloadFile(behavCsv, `landscape_behavior_${Date.now()}.csv`);
+}
+
+function downloadFile(content, filename) {
+    const blob = new Blob([content], {type:'text/csv'});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `landscape_gaze_${Date.now()}.csv`;
+    a.download = filename;
     a.click();
 }
 
