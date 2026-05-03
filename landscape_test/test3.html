@@ -592,27 +592,48 @@ function downloadFile(content, filename) {
 // 初始化 (与 food3_formal 完全一致)
 // ============================================================
 async function init() {
-    const faceMesh = new FaceMesh({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
-    });
-    faceMesh.setOptions({
-        maxNumFaces: 1,
-        refineLandmarks: true,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5
-    });
-    faceMesh.onResults(onResults);
+    debugDiv.textContent = '正在加载AI引擎...';
 
-    const camera = new Camera(videoElement, {
-        onFrame: async () => {
-            await faceMesh.send({ image: videoElement });
-        },
-        width: 640,
-        height: 480
-    });
-    await camera.start();
+    // 超时检测: 30秒还没加载好就提示
+    const timeout = setTimeout(() => {
+        if (phase === 'LOADING') {
+            debugDiv.textContent = '⚠️ 加载超时，请尝试: 1)关闭Wi-Fi用4G 2)清除浏览器缓存 3)刷新页面';
+        }
+    }, 30000);
 
-    phase = 'READY';
+    try {
+        const faceMesh = new FaceMesh({
+            locateFile: (file) => {
+                debugDiv.textContent = `正在下载: ${file}`;
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+            }
+        });
+        faceMesh.setOptions({
+            maxNumFaces: 1,
+            refineLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        faceMesh.onResults(onResults);
+
+        debugDiv.textContent = '正在启动摄像头...';
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await faceMesh.send({ image: videoElement });
+            },
+            width: 640,
+            height: 480
+        });
+        await camera.start();
+
+        clearTimeout(timeout);
+        debugDiv.textContent = '✅ 就绪';
+        phase = 'READY';
+    } catch (e) {
+        clearTimeout(timeout);
+        console.error('Init Error:', e);
+        debugDiv.textContent = `❌ 加载失败: ${e.message || e.name || '未知错误'}`;
+    }
 }
 
 draw();
