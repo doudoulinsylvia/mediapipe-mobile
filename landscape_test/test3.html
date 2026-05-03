@@ -47,6 +47,12 @@ let frameCount = 0;
 let displayGX = 0, displayGY = 0; // EMA 显示位置
 const EMA_ALPHA = 0.5; // 加快响应 (0=慢, 1=即时)
 
+// 头部姿态补偿
+let headYaw = 0, headPitch = 0;       // 当前头部姿态
+let neutralYaw = 0, neutralPitch = 0; // 校准时记录的中性姿态
+const YAW_GAIN = 0.35;   // yaw 补偿系数 (可调)
+const PITCH_GAIN = 0.20;  // pitch 补偿系数 (可调)
+
 // 实验参数
 const NUM_TRIALS = 150;
 const RATING_COUNT = 200;
@@ -102,18 +108,36 @@ function onResults(results) {
     const ratio = v_dist / (h_dist + 1e-6);
     lastGaze.valid = ratio > 0.14;
 
+    // --- 头部姿态估算 ---
+    // Yaw: 鼻尖(1) 相对于两眼外角中点的水平偏移 / 面部宽度
+    const eyeMidX = (lms[33].x + lms[263].x) / 2;
+    const faceW = Math.abs(lms[263].x - lms[33].x) + 1e-6;
+    headYaw = (lms[1].x - eyeMidX) / faceW;
+
+    // Pitch: 鼻尖(1) 相对于眼中点-下巴跨度的垂直位置
+    const eyeMidY = (lms[159].y + lms[386].y) / 2;
+    const chinY = lms[152].y;
+    const faceH = Math.abs(chinY - eyeMidY) + 1e-6;
+    headPitch = (lms[1].y - eyeMidY) / faceH;
+
+    // --- 虹膜注视计算 (原始) ---
     const h_dist_lx = Math.hypot(lms[133].x - lms[33].x, lms[133].y - lms[33].y);
     const lx = Math.hypot(lms[468].x - lms[33].x, lms[468].y - lms[33].y) / (h_dist_lx + 1e-6);
     const h_dist_rx = Math.hypot(lms[263].x - lms[362].x, lms[263].y - lms[362].y);
     const rx = Math.hypot(lms[473].x - lms[362].x, lms[473].y - lms[362].y) / (h_dist_rx + 1e-6);
-    // 横屏前摄镜像修正: 翻转 X
-    const raw_x = 1.0 - (lx + rx) / 2.0;
 
     const leftEyeH = Math.hypot(lms[159].x - lms[145].x, lms[159].y - lms[145].y);
     const rightEyeH = Math.hypot(lms[386].x - lms[374].x, lms[386].y - lms[374].y);
     const l_y = (lms[468].y - lms[159].y) / (leftEyeH + 1e-6);
     const r_y = (lms[473].y - lms[386].y) / (rightEyeH + 1e-6);
-    const raw_y = (l_y + r_y) / 2.0;
+
+    // --- 头部姿态补偿: 减去头部偏移对注视的干扰 ---
+    const yawDelta = headYaw - neutralYaw;     // 相对于校准时的偏转
+    const pitchDelta = headPitch - neutralPitch;
+
+    // 横屏前摄镜像修正 + yaw补偿
+    const raw_x = 1.0 - (lx + rx) / 2.0 - yawDelta * YAW_GAIN;
+    const raw_y = (l_y + r_y) / 2.0 - pitchDelta * PITCH_GAIN;
 
     lastGaze.raw_x = raw_x;
     lastGaze.raw_y = raw_y;
@@ -126,7 +150,7 @@ function onResults(results) {
         if (rawYBuffer.length > 12) rawYBuffer.shift();
     }
 
-    debugDiv.textContent = `f:${frameCount} rx:${raw_x.toFixed(3)} ry:${raw_y.toFixed(3)} v:${lastGaze.valid?'Y':'N'}`;
+    debugDiv.textContent = `f:${frameCount} rx:${raw_x.toFixed(3)} ry:${raw_y.toFixed(3)} yaw:${yawDelta.toFixed(3)} pit:${pitchDelta.toFixed(3)} v:${lastGaze.valid?'Y':'N'}`;
 }
 
 function median(arr) {
@@ -334,6 +358,10 @@ async function calibrate() {
         calibResY.push(cy);
     }
     calibCurrentPoint = null;
+
+    // 记录校准时的中性头部姿态 (作为后续补偿的基准)
+    neutralYaw = headYaw;
+    neutralPitch = headPitch;
 
     calibLimits.x_center = calibResX[0];
     calibLimits.x_min = Math.min(...calibResX) - (calibResX[0] - Math.min(...calibResX)) * 0.6;
