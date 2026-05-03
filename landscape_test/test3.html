@@ -45,7 +45,7 @@ let calibLimits = { x_min: 0.3, x_max: 0.7, x_center: 0.5, y_min: -0.1, y_max: 0
 let calibrated = false;
 let frameCount = 0;
 let displayGX = 0, displayGY = 0; // EMA 显示位置
-const EMA_ALPHA = 0.5; // 加快响应 (0=慢, 1=即时)
+const EMA_ALPHA = 0.3; // 平滑系数 (越小越平滑)
 
 // 头部姿态补偿
 let headYaw = 0, headPitch = 0;       // 当前头部姿态
@@ -145,9 +145,9 @@ function onResults(results) {
     // 只在眼睛睁开时加入 buffer，过滤眨眼噪声
     if (lastGaze.valid) {
         rawXBuffer.push(raw_x);
-        if (rawXBuffer.length > 12) rawXBuffer.shift();
+        if (rawXBuffer.length > 20) rawXBuffer.shift();
         rawYBuffer.push(raw_y);
-        if (rawYBuffer.length > 12) rawYBuffer.shift();
+        if (rawYBuffer.length > 20) rawYBuffer.shift();
     }
 
     debugDiv.textContent = `f:${frameCount} rx:${raw_x.toFixed(3)} ry:${raw_y.toFixed(3)} yaw:${yawDelta.toFixed(3)} pit:${pitchDelta.toFixed(3)} v:${lastGaze.valid?'Y':'N'}`;
@@ -271,11 +271,12 @@ function draw() {
         drawText('点击屏幕下载数据', canvas.width/2, canvas.height/2 + 30, 18, '#ffcc00');
     }
 
-    // 画注视点 (始终画)
+    // 画注视点 (仅在二元选择和校准阶段显示，评分阶段隐藏以免干扰被试)
+    const showDot = phase === 'DECISION' || phase === 'FIXATION' || phase === 'CALIBRATING' || phase === 'READY';
     if (frameCount > 0 && lastGaze.valid && rawXBuffer.length >= 3) {
         // 用中位数(而非均值)来平滑, 天然抗器堋值且不阻挡扫视
-        const medX = median(rawXBuffer.slice(-5));
-        const medY = median(rawYBuffer.slice(-5));
+        const medX = median(rawXBuffer.slice(-9));
+        const medY = median(rawYBuffer.slice(-9));
         const gx = mapX(medX);
         const gy = mapY(medY);
 
@@ -287,13 +288,15 @@ function draw() {
             displayGY = displayGY + EMA_ALPHA * (gy - displayGY);
         }
 
-        ctx.beginPath();
-        ctx.arc(displayGX, displayGY, 12, 0, Math.PI*2);
-        ctx.fillStyle = calibrated ? 'rgba(0,255,100,0.7)' : 'rgba(255,200,0,0.7)';
-        ctx.fill();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2;
-        ctx.stroke();
+        if (showDot) {
+            ctx.beginPath();
+            ctx.arc(displayGX, displayGY, 12, 0, Math.PI*2);
+            ctx.fillStyle = calibrated ? 'rgba(0,255,100,0.7)' : 'rgba(255,200,0,0.7)';
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
 
         // 记录 (评分 + 二元选择阶段都记录)
         if (phase === 'DECISION' || phase === 'RATING_DECISION') {
