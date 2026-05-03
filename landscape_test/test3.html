@@ -272,7 +272,7 @@ function draw() {
     }
 
     // 画注视点 (仅在二元选择和校准阶段显示，评分阶段隐藏以免干扰被试)
-    const showDot = phase === 'DECISION' || phase === 'FIXATION' || phase === 'CALIBRATING' || phase === 'READY';
+    const showDot = phase === 'DECISION' || phase === 'FIXATION' || phase === 'CALIBRATING' || phase === 'READY' || phase === 'RATING_DECISION' || phase === 'RATING_FIXATION';
     if (frameCount > 0 && lastGaze.valid && rawXBuffer.length >= 3) {
         // 用中位数(而非均值)来平滑, 天然抗器堋值且不阻挡扫视
         const medX = median(rawXBuffer.slice(-9));
