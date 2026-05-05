@@ -31,7 +31,7 @@
 // 新版 MediaPipe Face Landmarker + Blendshapes 精确注视追踪
 // ============================================================
 import { FaceLandmarker, FilesetResolver } from
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22";
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35";
 
 const videoElement = document.getElementById('input_video');
 const canvas = document.getElementById('c');
@@ -634,7 +634,7 @@ async function init() {
     try {
         debugDiv.textContent = '正在下载 WASM 运行时...';
         const vision = await FilesetResolver.forVisionTasks(
-            "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm"
+            "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm"
         );
 
         debugDiv.textContent = '正在下载人脸模型...';
