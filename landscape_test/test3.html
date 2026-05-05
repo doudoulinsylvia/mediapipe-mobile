@@ -4,10 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>横屏注视点测试</title>
-  <!-- MediaPipe Solutions (与 food3_formal 完全一致) -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <!-- 新版 MediaPipe Tasks Vision (ES module, 含 blendshapes + transformation matrix) -->
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     body { background:#000; color:#fff; font-family:sans-serif; overflow:hidden; width:100vw; height:100vh; }
@@ -29,11 +26,13 @@
   <canvas id="c"></canvas>
   <div id="debug">加载中...</div>
 
-<script>
+<script type="module">
 // ============================================================
-// 完全复刻 food3_formal 的 MediaPipe 初始化方式
-// 只做一件事: 在 canvas 上画注视点
+// 新版 MediaPipe Face Landmarker + Blendshapes 精确注视追踪
 // ============================================================
+import { FaceLandmarker, FilesetResolver } from
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22";
+
 const videoElement = document.getElementById('input_video');
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
@@ -44,14 +43,17 @@ let rawXBuffer = [], rawYBuffer = [];
 let calibLimits = { x_min: 0.3, x_max: 0.7, x_center: 0.5, y_min: -0.1, y_max: 0.7, y_center: 0.3 };
 let calibrated = false;
 let frameCount = 0;
-let displayGX = 0, displayGY = 0; // EMA 显示位置
-const EMA_ALPHA = 0.3; // 平滑系数 (越小越平滑)
+let displayGX = 0, displayGY = 0;
+const EMA_ALPHA = 0.3;
 
-// 头部姿态补偿
-let headYaw = 0, headPitch = 0;       // 当前头部姿态
-let neutralYaw = 0, neutralPitch = 0; // 校准时记录的中性姿态
-const YAW_GAIN = 0.35;   // yaw 补偿系数 (可调)
-const PITCH_GAIN = 0.20;  // pitch 补偿系数 (可调)
+// 头部姿态补偿 (用 transformation matrix 精确计算)
+let headYaw = 0, headPitch = 0;
+let neutralYaw = 0, neutralPitch = 0;
+const YAW_GAIN = 0.6;    // blendshape 尺度下的补偿系数
+const PITCH_GAIN = 0.4;
+
+// FaceLandmarker 实例
+let faceLandmarker = null;
 
 // 实验参数
 const NUM_TRIALS = 150;
@@ -93,56 +95,82 @@ let breakResolve = null;
 let calibCurrentPoint = null;
 
 // ============================================================
-// onResults (完全复刻 food3_formal)
+// 处理每一帧的识别结果 (新版: 用 blendshapes 计算注视)
 // ============================================================
-function onResults(results) {
-    if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+function processResult(result) {
+    if (!result.faceLandmarks || result.faceLandmarks.length === 0) {
         lastGaze.valid = false;
         return;
     }
     frameCount++;
-    const lms = results.multiFaceLandmarks[0];
+    const lms = result.faceLandmarks[0];
 
-    const v_dist = Math.hypot(lms[159].x - lms[145].x, lms[159].y - lms[145].y);
-    const h_dist = Math.hypot(lms[133].x - lms[33].x, lms[133].y - lms[33].y);
-    const ratio = v_dist / (h_dist + 1e-6);
-    lastGaze.valid = ratio > 0.14;
+    // --- 眨眼检测 (blendshapes, 比 ratio 更精确) ---
+    let blinkL = 0, blinkR = 0;
+    let lookInL = 0, lookOutL = 0, lookUpL = 0, lookDownL = 0;
+    let lookInR = 0, lookOutR = 0, lookUpR = 0, lookDownR = 0;
 
-    // --- 头部姿态估算 ---
-    // Yaw: 鼻尖(1) 相对于两眼外角中点的水平偏移 / 面部宽度
-    const eyeMidX = (lms[33].x + lms[263].x) / 2;
-    const faceW = Math.abs(lms[263].x - lms[33].x) + 1e-6;
-    headYaw = (lms[1].x - eyeMidX) / faceW;
+    if (result.faceBlendshapes && result.faceBlendshapes.length > 0) {
+        const bs = result.faceBlendshapes[0].categories;
+        const bsMap = {};
+        for (const b of bs) bsMap[b.categoryName] = b.score;
 
-    // Pitch: 鼻尖(1) 相对于眼中点-下巴跨度的垂直位置
-    const eyeMidY = (lms[159].y + lms[386].y) / 2;
-    const chinY = lms[152].y;
-    const faceH = Math.abs(chinY - eyeMidY) + 1e-6;
-    headPitch = (lms[1].y - eyeMidY) / faceH;
+        blinkL = bsMap['eyeBlinkLeft'] || 0;
+        blinkR = bsMap['eyeBlinkRight'] || 0;
+        lookInL = bsMap['eyeLookInLeft'] || 0;     // 左眼看向鼻子 = 看右
+        lookOutL = bsMap['eyeLookOutLeft'] || 0;    // 左眼看向耳朵 = 看左
+        lookUpL = bsMap['eyeLookUpLeft'] || 0;
+        lookDownL = bsMap['eyeLookDownLeft'] || 0;
+        lookInR = bsMap['eyeLookInRight'] || 0;     // 右眼看向鼻子 = 看左
+        lookOutR = bsMap['eyeLookOutRight'] || 0;   // 右眼看向耳朵 = 看右
+        lookUpR = bsMap['eyeLookUpRight'] || 0;
+        lookDownR = bsMap['eyeLookDownRight'] || 0;
+    }
 
-    // --- 虹膜注视计算 (原始) ---
-    const h_dist_lx = Math.hypot(lms[133].x - lms[33].x, lms[133].y - lms[33].y);
-    const lx = Math.hypot(lms[468].x - lms[33].x, lms[468].y - lms[33].y) / (h_dist_lx + 1e-6);
-    const h_dist_rx = Math.hypot(lms[263].x - lms[362].x, lms[263].y - lms[362].y);
-    const rx = Math.hypot(lms[473].x - lms[362].x, lms[473].y - lms[362].y) / (h_dist_rx + 1e-6);
+    // 眨眼检测: blendshape > 0.4 表示闭眼
+    lastGaze.valid = (blinkL < 0.4 && blinkR < 0.4);
 
-    const leftEyeH = Math.hypot(lms[159].x - lms[145].x, lms[159].y - lms[145].y);
-    const rightEyeH = Math.hypot(lms[386].x - lms[374].x, lms[386].y - lms[374].y);
-    const l_y = (lms[468].y - lms[159].y) / (leftEyeH + 1e-6);
-    const r_y = (lms[473].y - lms[386].y) / (rightEyeH + 1e-6);
+    // --- 注视方向 (blendshapes) ---
+    // 水平: 看右为正 (lookInL + lookOutR 表示看右, lookOutL + lookInR 表示看左)
+    const lookRightScore = (lookInL + lookOutR) / 2;
+    const lookLeftScore = (lookOutL + lookInR) / 2;
+    // 垂直: 看下为正
+    const lookDownScore = (lookDownL + lookDownR) / 2;
+    const lookUpScore = (lookUpL + lookUpR) / 2;
 
-    // --- 头部姿态补偿: 减去头部偏移对注视的干扰 ---
-    const yawDelta = headYaw - neutralYaw;     // 相对于校准时的偏转
+    // 映射到 0-1 范围 (中心点 0.5)
+    const bs_x = 0.5 + (lookRightScore - lookLeftScore) * 1.5;
+    const bs_y = 0.5 + (lookDownScore - lookUpScore) * 1.5;
+
+    // --- 头部姿态 (transformation matrix, 比鼻尖估算更精确) ---
+    if (result.facialTransformationMatrixes && result.facialTransformationMatrixes.length > 0) {
+        const m = result.facialTransformationMatrixes[0].data;
+        // 4x4 matrix, 提取 yaw 和 pitch
+        // yaw ≈ atan2(m[8], m[0]),  pitch ≈ atan2(-m[9], m[5])
+        headYaw = Math.atan2(m[8], m[0]);
+        headPitch = Math.atan2(-m[9], m[5]);
+    } else {
+        // Fallback: 用鼻尖估算
+        const eyeMidX = (lms[33].x + lms[263].x) / 2;
+        const faceW = Math.abs(lms[263].x - lms[33].x) + 1e-6;
+        headYaw = (lms[1].x - eyeMidX) / faceW;
+        const eyeMidY = (lms[159].y + lms[386].y) / 2;
+        const chinY = lms[152].y;
+        const faceH = Math.abs(chinY - eyeMidY) + 1e-6;
+        headPitch = (lms[1].y - eyeMidY) / faceH;
+    }
+
+    // --- 头部姿态补偿 ---
+    const yawDelta = headYaw - neutralYaw;
     const pitchDelta = headPitch - neutralPitch;
 
-    // 横屏前摄镜像修正 + yaw补偿
-    const raw_x = 1.0 - (lx + rx) / 2.0 - yawDelta * YAW_GAIN;
-    const raw_y = (l_y + r_y) / 2.0 - pitchDelta * PITCH_GAIN;
+    const raw_x = bs_x - yawDelta * YAW_GAIN;
+    const raw_y = bs_y - pitchDelta * PITCH_GAIN;
 
     lastGaze.raw_x = raw_x;
     lastGaze.raw_y = raw_y;
 
-    // 只在眼睛睁开时加入 buffer，过滤眨眼噪声
+    // 只在眼睛睁开时加入 buffer
     if (lastGaze.valid) {
         rawXBuffer.push(raw_x);
         if (rawXBuffer.length > 20) rawXBuffer.shift();
@@ -150,7 +178,7 @@ function onResults(results) {
         if (rawYBuffer.length > 20) rawYBuffer.shift();
     }
 
-    debugDiv.textContent = `f:${frameCount} rx:${raw_x.toFixed(3)} ry:${raw_y.toFixed(3)} yaw:${yawDelta.toFixed(3)} pit:${pitchDelta.toFixed(3)} v:${lastGaze.valid?'Y':'N'}`;
+    debugDiv.textContent = `f:${frameCount} bx:${bs_x.toFixed(3)} by:${bs_y.toFixed(3)} yaw:${yawDelta.toFixed(2)} bk:${(blinkL+blinkR).toFixed(1)} v:${lastGaze.valid?'Y':'N'}`;
 }
 
 function median(arr) {
@@ -592,45 +620,56 @@ function downloadFile(content, filename) {
 }
 
 // ============================================================
-// 初始化 (与 food3_formal 完全一致)
+// 初始化 (新版 Face Landmarker + Blendshapes)
 // ============================================================
 async function init() {
-    debugDiv.textContent = '正在加载AI引擎...';
+    debugDiv.textContent = '正在加载 AI 引擎 (v2)...';
 
-    // 超时检测: 30秒还没加载好就提示
     const timeout = setTimeout(() => {
         if (phase === 'LOADING') {
-            debugDiv.textContent = '⚠️ 加载超时，请尝试: 1)关闭Wi-Fi用4G 2)清除浏览器缓存 3)刷新页面';
+            debugDiv.textContent = '⚠️ 加载超时，请尝试: 1)关闭Wi-Fi用4G 2)清除缓存 3)刷新';
         }
-    }, 30000);
+    }, 45000);
 
     try {
-        const faceMesh = new FaceMesh({
-            locateFile: (file) => {
-                debugDiv.textContent = `正在下载: ${file}`;
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-            }
+        debugDiv.textContent = '正在下载 WASM 运行时...';
+        const vision = await FilesetResolver.forVisionTasks(
+            "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm"
+        );
+
+        debugDiv.textContent = '正在下载人脸模型...';
+        faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+            baseOptions: {
+                modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+                delegate: "GPU"
+            },
+            runningMode: "VIDEO",
+            numFaces: 1,
+            minFaceDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5,
+            outputFaceBlendshapes: true,
+            outputFacialTransformationMatrixes: true
         });
-        faceMesh.setOptions({
-            maxNumFaces: 1,
-            refineLandmarks: true,
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
-        });
-        faceMesh.onResults(onResults);
 
         debugDiv.textContent = '正在启动摄像头...';
-        const camera = new Camera(videoElement, {
-            onFrame: async () => {
-                await faceMesh.send({ image: videoElement });
-            },
-            width: 640,
-            height: 480
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
         });
-        await camera.start();
+        videoElement.srcObject = stream;
+        await videoElement.play();
+
+        // 检测循环
+        function detect() {
+            if (videoElement.readyState >= 2) {
+                const result = faceLandmarker.detectForVideo(videoElement, performance.now());
+                processResult(result);
+            }
+            requestAnimationFrame(detect);
+        }
+        detect();
 
         clearTimeout(timeout);
-        debugDiv.textContent = '✅ 就绪';
+        debugDiv.textContent = '✅ 就绪 (Blendshapes v2)';
         phase = 'READY';
     } catch (e) {
         clearTimeout(timeout);
