@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>横屏注视点测试</title>
   <!-- 新版 MediaPipe Tasks Vision (ES module, 含 blendshapes + transformation matrix) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     body { background:#000; color:#fff; font-family:sans-serif; overflow:hidden; width:100vw; height:100vh; }
@@ -130,42 +131,33 @@ function processResult(result) {
     // 眨眼检测: blendshape > 0.4 表示闭眼
     lastGaze.valid = (blinkL < 0.4 && blinkR < 0.4);
 
-    // --- 注视方向 (blendshapes) ---
-    // 水平: 看右为正 (lookInL + lookOutR 表示看右, lookOutL + lookInR 表示看左)
-    const lookRightScore = (lookInL + lookOutR) / 2;
-    const lookLeftScore = (lookOutL + lookInR) / 2;
-    // 垂直: 看下为正
-    const lookDownScore = (lookDownL + lookDownR) / 2;
-    const lookUpScore = (lookUpL + lookUpR) / 2;
+    // --- 虹膜注视计算 (几何计算，更稳定不出界) ---
+    const h_dist_lx = Math.hypot(lms[133].x - lms[33].x, lms[133].y - lms[33].y);
+    const lx = Math.hypot(lms[468].x - lms[33].x, lms[468].y - lms[33].y) / (h_dist_lx + 1e-6);
+    const h_dist_rx = Math.hypot(lms[263].x - lms[362].x, lms[263].y - lms[362].y);
+    const rx = Math.hypot(lms[473].x - lms[362].x, lms[473].y - lms[362].y) / (h_dist_rx + 1e-6);
 
-    // 映射到 0-1 范围 (中心点 0.5)
-    const bs_x = 0.5 + (lookRightScore - lookLeftScore) * 1.5;
-    const bs_y = 0.5 + (lookDownScore - lookUpScore) * 1.5;
+    const leftEyeH = Math.hypot(lms[159].x - lms[145].x, lms[159].y - lms[145].y);
+    const rightEyeH = Math.hypot(lms[386].x - lms[374].x, lms[386].y - lms[374].y);
+    const l_y = (lms[468].y - lms[159].y) / (leftEyeH + 1e-6);
+    const r_y = (lms[473].y - lms[386].y) / (rightEyeH + 1e-6);
 
-    // --- 头部姿态 (transformation matrix, 比鼻尖估算更精确) ---
-    if (result.facialTransformationMatrixes && result.facialTransformationMatrixes.length > 0) {
-        const m = result.facialTransformationMatrixes[0].data;
-        // 4x4 matrix, 提取 yaw 和 pitch
-        // yaw ≈ atan2(m[8], m[0]),  pitch ≈ atan2(-m[9], m[5])
-        headYaw = Math.atan2(m[8], m[0]);
-        headPitch = Math.atan2(-m[9], m[5]);
-    } else {
-        // Fallback: 用鼻尖估算
-        const eyeMidX = (lms[33].x + lms[263].x) / 2;
-        const faceW = Math.abs(lms[263].x - lms[33].x) + 1e-6;
-        headYaw = (lms[1].x - eyeMidX) / faceW;
-        const eyeMidY = (lms[159].y + lms[386].y) / 2;
-        const chinY = lms[152].y;
-        const faceH = Math.abs(chinY - eyeMidY) + 1e-6;
-        headPitch = (lms[1].y - eyeMidY) / faceH;
-    }
+    // --- 头部姿态 (使用鼻尖几何计算，确保稳定不出界) ---
+    const eyeMidX = (lms[33].x + lms[263].x) / 2;
+    const faceW = Math.abs(lms[263].x - lms[33].x) + 1e-6;
+    headYaw = (lms[1].x - eyeMidX) / faceW;
+    const eyeMidY = (lms[159].y + lms[386].y) / 2;
+    const chinY = lms[152].y;
+    const faceH = Math.abs(chinY - eyeMidY) + 1e-6;
+    headPitch = (lms[1].y - eyeMidY) / faceH;
 
     // --- 头部姿态补偿 ---
     const yawDelta = headYaw - neutralYaw;
     const pitchDelta = headPitch - neutralPitch;
 
-    const raw_x = bs_x - yawDelta * YAW_GAIN;
-    const raw_y = bs_y - pitchDelta * PITCH_GAIN;
+    // 横屏镜像修正 + 补偿 (沿用最稳定的旧版参数)
+    const raw_x = 1.0 - (lx + rx) / 2.0 - yawDelta * 0.35;
+    const raw_y = (l_y + r_y) / 2.0 - pitchDelta * 0.20;
 
     lastGaze.raw_x = raw_x;
     lastGaze.raw_y = raw_y;
@@ -592,29 +584,41 @@ canvas.addEventListener('click', () => {
 });
 
 // ============================================================
-// 数据下载
+// 数据下载 (打包为 ZIP，防止 iOS Safari 拦截多文件下载)
 // ============================================================
 function downloadData() {
-    // 1. 注视数据
-    const gazeCsv = 'phase,trial,time_ms,gazeX,gazeY,raw_x,raw_y\n' +
-        gazeLog.map(g => `${g.phase},${g.trial},${g.time},${g.gazeX},${g.gazeY},${g.raw_x},${g.raw_y}`).join('\n');
-    downloadFile(gazeCsv, `landscape_gaze_${Date.now()}.csv`);
+    debugDiv.textContent = '正在打包数据...';
+    try {
+        const zip = new JSZip();
 
-    // 2. 评分数据
-    const ratingCsv = 'image,rating,rt_ms\n' +
-        ratingLog.map(r => `${r.image},${r.rating},${r.rt}`).join('\n');
-    downloadFile(ratingCsv, `landscape_rating_${Date.now()}.csv`);
+        // 1. 注视数据
+        const gazeCsv = 'phase,trial,time_ms,gazeX,gazeY,raw_x,raw_y\n' +
+            gazeLog.map(g => `${g.phase},${g.trial},${g.time},${g.gazeX},${g.gazeY},${g.raw_x},${g.raw_y}`).join('\n');
+        zip.file(`landscape_gaze_${Date.now()}.csv`, gazeCsv);
 
-    // 3. 行为数据
-    const behavCsv = 'trial,left_img,right_img,left_rating,right_rating,choice,rt_ms\n' +
-        trials.map((t,i) => `${i+1},${t.left},${t.right},${t.left_rating||''},${t.right_rating||''},${t.choice||''},${t.rt?t.rt.toFixed(0):''}`).join('\n');
-    downloadFile(behavCsv, `landscape_behavior_${Date.now()}.csv`);
+        // 2. 评分数据
+        const ratingCsv = 'image,rating,rt_ms\n' +
+            ratingLog.map(r => `${r.image},${r.rating},${r.rt}`).join('\n');
+        zip.file(`landscape_rating_${Date.now()}.csv`, ratingCsv);
+
+        // 3. 行为数据
+        const behavCsv = 'trial,left_img,right_img,left_rating,right_rating,choice,rt_ms\n' +
+            trials.map((t,i) => `${i+1},${t.left},${t.right},${t.left_rating||''},${t.right_rating||''},${t.choice||''},${t.rt?t.rt.toFixed(0):''}`).join('\n');
+        zip.file(`landscape_behavior_${Date.now()}.csv`, behavCsv);
+
+        zip.generateAsync({type:"blob"}).then(function(content) {
+            downloadFile(content, `landscape_all_data_${Date.now()}.zip`);
+            debugDiv.textContent = '✅ 数据下载完成';
+        });
+    } catch (e) {
+        console.error("ZIP Error:", e);
+        debugDiv.textContent = '❌ 打包失败，请检查浏览器是否支持';
+    }
 }
 
 function downloadFile(content, filename) {
-    const blob = new Blob([content], {type:'text/csv'});
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    a.href = URL.createObjectURL(content);
     a.download = filename;
     a.click();
 }
