@@ -170,7 +170,7 @@ function processResult(result) {
         if (rawYBuffer.length > 20) rawYBuffer.shift();
     }
 
-    debugDiv.textContent = `f:${frameCount} bx:${bs_x.toFixed(3)} by:${bs_y.toFixed(3)} yaw:${yawDelta.toFixed(2)} bk:${(blinkL+blinkR).toFixed(1)} v:${lastGaze.valid?'Y':'N'}`;
+    debugDiv.textContent = `f:${frameCount} rx:${raw_x.toFixed(3)} ry:${raw_y.toFixed(3)} yaw:${yawDelta.toFixed(2)} bk:${(blinkL+blinkR).toFixed(1)} v:${lastGaze.valid?'Y':'N'}`;
 }
 
 function median(arr) {
