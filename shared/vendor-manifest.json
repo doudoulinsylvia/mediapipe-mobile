@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 2,
+  "package": "@mediapipe/face_mesh",
+  "packageVersion": "0.4.1633559619",
+  "source": "Existing repository food2/mp/package; no vendor files changed",
+  "license": "Apache-2.0",
+  "hashAlgorithm": "SHA-256",
+  "files": [
+    {
+      "path": "food2/mp/package/README.md",
+      "bytes": 379,
+      "sha256": "9dad28188ae54ea420e3d29c23360b040a0dfb88954b99a3e456b8a8c93cf2a1"
+    },
+    {
+      "path": "food2/mp/package/camera_utils.js",
+      "bytes": 7881,
+      "sha256": "ee14cd241f693504a9ea55fa2f2ed3b24da1f7cf804926716069d0d232434d8e"
+    },
+    {
+      "path": "food2/mp/package/face_mesh.binarypb",
+      "bytes": 939,
+      "sha256": "139546bf05aebb33e2611b6b945f3a1629c316ca924e33cec1547c85ddef9f53"
+    },
+    {
+      "path": "food2/mp/package/face_mesh.js",
+      "bytes": 64913,
+      "sha256": "5db8555ac80ca2ad7366fbb3ea53c0d0959609fc9abb7b8be37a74ec1ac4ba9c"
+    },
+    {
+      "path": "food2/mp/package/face_mesh_solution_packed_assets.data",
+      "bytes": 3986256,
+      "sha256": "dbe5905c582c0462cdaea17e7e6ecea92edaa8cccc515c5e2e7291f2cbb5fb99"
+    },
+    {
+      "path": "food2/mp/package/face_mesh_solution_packed_assets_loader.js",
+      "bytes": 8928,
+      "sha256": "e5de8685b299184813f7cec668e499023937ae521b70f60cd0fc4832930446e0"
+    },
+    {
+      "path": "food2/mp/package/face_mesh_solution_simd_wasm_bin.data",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "food2/mp/package/face_mesh_solution_simd_wasm_bin.js",
+      "bytes": 330166,
+      "sha256": "ca291877afb9c13308cf6be42f23cd39f1adf0036bb63ecad2ce16073bcf07c7"
+    },
+    {
+      "path": "food2/mp/package/face_mesh_solution_simd_wasm_bin.wasm",
+      "bytes": 6161697,
+      "sha256": "fb9e9cfe8b83a914e40eab2efd3b0d92a61f82a7c968589f223ab2a7e331d314"
+    },
+    {
+      "path": "food2/mp/package/face_mesh_solution_wasm_bin.js",
+      "bytes": 330161,
+      "sha256": "0a532ae8450e7e5f2788cc92ad190210f721446d3fd9cb259fdda958e66102c1"
+    },
+    {
+      "path": "food2/mp/package/face_mesh_solution_wasm_bin.wasm",
+      "bytes": 6084312,
+      "sha256": "54522fa25c505bf094242f969b4e4919125eb0dadccb568f2af171bbd65865f9"
+    },
+    {
+      "path": "food2/mp/package/index.d.ts",
+      "bytes": 6383,
+      "sha256": "9269579ae1b81e0f7b5232fa759cead6329a3683da8c864d8b258c9ffd5a1ad4"
+    },
+    {
+      "path": "food2/mp/package/package.json",
+      "bytes": 664,
+      "sha256": "e279c3b6774049f9f3147e5e2a47998a6114774c2ba6fa7a323f8fd505bd8109"
+    }
+  ]
+}
