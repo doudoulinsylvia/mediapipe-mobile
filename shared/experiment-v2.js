@@ -8,7 +8,7 @@
   });
 })(typeof window === 'undefined' ? null : window, function () {
   'use strict';
-  const VERSION = '2.0.0';
+  const VERSION = '2.0.1';
   const SCHEMA = 2;
   const CALIBRATION_TARGETS = [0.08, 0.5, 0.92].flatMap((y, row) =>
     [0.08, 0.5, 0.92].map((x, col) => ({ targetId: `c${row * 3 + col + 1}`, targetX: x, targetY: y })));
@@ -20,6 +20,8 @@
     minValidFramesPerPoint: 12, validationEveryTrials: 50, fixationMinMs: 800, fixationMaxMs: 1000,
     maxDwellGapMs: 100, smoothTauMs: 65, smoothResetGapMs: 150,
     callbackGapWarningMs: 1000, callbackGapPauseMs: 5000, cameraStartupTimeoutMs: 20000,
+    permissionTimeoutMs:60000, videoStartupTimeoutMs:20000, modelLoadTimeoutMs:120000,
+    imageLoadTimeoutMs:30000, imageBatchTimeoutMs:180000,
     validation: { minCoverage:.8, minSamplesPerPoint:12, minTargetCount:9,
       minTargetSpanX:.4, minTargetSpanY:.4, maxMeanErrorNorm:.12, maxP95ErrorNorm:.25,
       maxMeanAbsErrorX:.10, maxMeanAbsErrorY:.10, maxP95AbsErrorX:.20,
@@ -142,6 +144,7 @@
       this.runningCamera=false; this.pending=false; this.lastVideoTime=-1; this.lastCallback=null; this.lastGapEvent=null;
       this.cameraFrameHandle=null; this.cameraFrameKind=null; this.watchdogHandle=null; this.inferenceMeta=null; this.resumeAction='rating';
       this.participantId=''; this.viewportId=0; this.cameraSettings={};
+      this.startupStageInfo=null;this.initializingModel=null;this.imageLoadCancels=new Set();
       this.canvas=document.getElementById('stage'); this.ctx=this.canvas.getContext('2d');
       this.panel=document.getElementById('panel'); this.status=document.getElementById('status');
       this.video=document.getElementById('camera'); this.ratingControls=document.getElementById('ratings');
@@ -170,7 +173,7 @@
         this.event(document.hidden?'page_hidden':'page_visible',{});
         if(document.hidden&&this.runningCamera) this.pause('page_hidden');
       });
-      window.addEventListener('pagehide',()=>{this.event('pagehide',{}); this.stopCamera();});
+      window.addEventListener('pagehide',()=>{this.event('pagehide',{}); if(this.phase==='starting')this.pause('page_hidden');else this.stopCamera();});
       window.addEventListener('beforeunload',e=>{
         if(this.gaze.length&&this.phase!=='finished') {e.preventDefault();e.returnValue='';}
       });
@@ -221,7 +224,7 @@
       this.panel.hidden=false;
     }
     welcome() {
-      this.status.textContent=this.pilot?'预实验模式 · 6评分 / 6选择':'手机眼动实验 · 改进版';
+      this.status.textContent=`v${VERSION} · ${this.pilot?'预实验模式 · 6评分 / 6选择':'手机眼动实验 · 改进版'}`;
       this.showPanel(this.pilot?'预实验模式':'手机食物选择实验',[
         `本次 ${this.ratingCount} 张图片评分、${this.trialCount} 次${this.layout==='vertical'?'上下':'左右'}选择。请固定手机，保持光照和观看距离稳定。`,
         '需要前置摄像头。图像只在本设备处理，不保存照片或视频，不自动上传数据。请在 Safari / Chrome 的 HTTPS 页面打开。',
@@ -235,8 +238,10 @@
     async start() {
       if(this.phase!=='welcome'&&this.phase!=='failure'&&this.phase!=='paused')return;
       const input=document.getElementById('participant-id');if(input)this.participantId=input.value.trim();
-      const token=this.enter('starting'); this.showPanel('正在准备',['正在载入摄像头与食物图片，请允许摄像头访问。'],[['取消',()=>this.pause('startup_cancel'),true]]);
-      this.later(this.config.cameraStartupTimeoutMs,()=>this.fail('camera_start_timeout','摄像头或图片载入超时。请检查浏览器权限与网络后重试。'));
+      const token=this.enter('starting');
+      this.startupStageInfo=null;
+      this.prepareStage('permission','1 / 5 · 等待相机授权','请在 Safari / Chrome 的提示中允许使用前置摄像头。',
+        this.config.permissionTimeoutMs,'等待相机授权超时。请检查此网站的相机权限后重试。');
       try {
         if(!window.isSecureContext)throw new Error('需要 HTTPS 或 localhost 安全页面');
         if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('此浏览器不支持摄像头访问');
@@ -244,42 +249,109 @@
         if(!this.ratingIds.length)this.ratingIds=shuffled(Array.from({length:200},(_,i)=>i+1)).slice(0,this.ratingCount);
         const stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:'user',width:{ideal:640},height:{ideal:480},frameRate:{ideal:30,max:60}}});
         if(token!==this.token){stream.getTracks().forEach(t=>t.stop());return;}
-        this.stream=stream;this.video.srcObject=stream;await this.video.play();
+        this.prepareStage('video','2 / 5 · 开启相机画面','相机权限已获得，正在启动视频。请保持 Safari 在前台。',
+          this.config.videoStartupTimeoutMs,'相机已获授权，但视频播放超时。请关闭其他占用相机的页面后重试。');
+        this.stream=stream;this.video.muted=true;this.video.autoplay=true;this.video.playsInline=true;
+        this.video.setAttribute('playsinline','');this.video.setAttribute('webkit-playsinline','');
+        this.video.srcObject=stream;await this.video.play();
         if(token!==this.token){stream.getTracks().forEach(t=>t.stop());return;}
         this.cameraSettings=stream.getVideoTracks()[0].getSettings();
         this.event('camera_started',{settings:this.cameraSettings});
         stream.getVideoTracks()[0].addEventListener('ended',()=>{
-          if(this.runningCamera)this.pause('camera_track_ended');
+          if(this.stream===stream&&(this.runningCamera||this.phase==='starting'))this.pause('camera_track_ended');
         });
+        this.prepareStage('model','3 / 5 · 加载眼动模型','相机已开启。首次需要下载约 10 MB 的模型并初始化，较慢网络最多等待 2 分钟；请保持页面在前台。',
+          this.config.modelLoadTimeoutMs,'眼动模型加载超时，相机授权已成功。请换稳定网络后重试；若仍停在此步骤，请先下载备份，再刷新 Safari 页面。');
+        // The pinned MediaPipe loader writes global factories. Never run two
+        // initializations concurrently, including a canceled earlier attempt.
+        if(this.initializingModel) {
+          await this.initializingModel.promise.catch(()=>{});
+          if(token!==this.token)return;
+        }
         if(!this.mesh) {
           this.mesh=new FaceMesh({locateFile:file=>new URL(this.config.staticAssetBase+file,location.href).href});
           this.mesh.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:.6,minTrackingConfidence:.6,selfieMode:false});
           const instance=this.mesh;
           instance.onResults(results=>this.onResults(results,instance.captureMeta||{}));
         }
-        if(typeof this.mesh.initialize==='function')await this.mesh.initialize();
+        const instance=this.mesh;
+        const record={instance,promise:null};
+        this.initializingModel=record;
+        // Some errors in this legacy loader are thrown by XHR handlers rather
+        // than rejecting initialize(). Preserve the resource failure in diagnostics.
+        const resourceError=e=>{
+          if(token!==this.token||this.startupStageInfo?.name!=='model')return;
+          const assetUrl=new URL(this.config.staticAssetBase,location.href).href;
+          if(typeof e.filename==='string'&&e.filename.startsWith(assetUrl)) {
+            this.event('startup_resource_error',{filename:e.filename,message:e.message});
+            this.fail('model_resource_error','眼动模型资源加载失败。请检查网络；保存备份后刷新页面可重新加载模型。');
+          }
+        };
+        window.addEventListener('error',resourceError);
+        record.promise=Promise.resolve().then(()=>typeof instance.initialize==='function'?instance.initialize():undefined)
+          .finally(()=>{
+            window.removeEventListener('error',resourceError);
+            if(this.initializingModel===record)this.initializingModel=null;
+            if(this.mesh!==instance)this.closeModel(instance);
+          });
+        await record.promise;
         if(token!==this.token)return;
-        await this.preloadImages();
+        this.prepareStage('images','4 / 5 · 加载实验图片',`正在准备 ${this.ratingIds.length} 张图片，已完成的图片会保留供重试。`,
+          this.config.imageBatchTimeoutMs,'实验图片加载超时。相机与模型已成功启动，请检查网络后重试；已加载的图片会保留。');
+        await this.preloadImages(token);
         if(token!==this.token)return;
         // Initialization and the first callback each have bounded, cancelable waits.
         this.awaitingFirstResultToken=token;
-        this.later(this.config.cameraStartupTimeoutMs,()=>this.fail('first_callback_timeout','摄像头已开启，但未收到模型结果。请重试；旧等待不会进入后续任务。'));
-        this.showPanel('等待摄像头结果',['模型已载入，正在等待首个摄像头结果。'],[['取消',()=>this.pause('startup_cancel'),true]]);
+        this.prepareStage('first_result','5 / 5 · 等待相机结果','模型与图片已准备好，正在读取第一帧。请让整张脸进入前置摄像头。',
+          this.config.cameraStartupTimeoutMs,'模型和图片已载入，但尚未收到摄像头推理结果。请保持 Safari 在前台后重试。','first_callback_timeout');
         this.runningCamera=true; this.lastVideoTime=-1;this.lastCallback=null;this.cameraStartedPerf=performance.now();this.scheduleCamera();this.watchCamera();
       } catch(error) {
         if(token!==this.token)return;
-        this.fail('camera_start_error',`启动失败：${error.message}`);
+        this.fail(error.code||`${this.startupStageInfo?.name||'camera_start'}_error`,`启动失败：${error.message}`);
       }
     }
-    async preloadImages() {
+    prepareStage(name,title,message,timeoutMs,timeoutMessage,code=`${name}_timeout`) {
+      if(this.startupStageInfo)this.event('startup_stage_complete',{...this.startupStageInfo,elapsed_ms:performance.now()-this.startupStageInfo.startedAt});
+      this.startupStageInfo={name,startedAt:performance.now()};
+      this.event('startup_stage_start',{name,timeout_ms:timeoutMs});
+      this.status.textContent=`v${VERSION} · ${title}`;
+      this.showPanel(title,[message],[['取消',()=>this.pause('startup_cancel'),true]]);
+      this.later(timeoutMs,()=>this.fail(code,timeoutMessage));
+    }
+    async preloadImages(token=this.token) {
       const base=this.layout==='vertical'?'../food2/images/':'../food3/images/';
-      // Decode a bounded number in parallel; retain loaded image objects for onset without network delay.
-      const ids=this.ratingIds.filter(id=>!this.images.has(id)); let cursor=0;
-      const worker=async()=>{while(cursor<ids.length){const id=ids[cursor++];const image=new Image();image.src=base+id+'.jpg';
-        await new Promise((resolve,reject)=>{if(image.complete&&image.naturalWidth)resolve();else {image.onload=resolve;image.onerror=()=>reject(new Error(`图片 ${id} 载入失败`));}});
-        this.images.set(id,image);
+      const ids=this.ratingIds.filter(id=>!this.images.has(id));let cursor=0,stopped=false;
+      const cancels=new Set();
+      const progress=()=>{if(token===this.token&&this.phase==='starting')this.status.textContent=`v${VERSION} · 4 / 5 · 图片 ${this.ratingIds.filter(id=>this.images.has(id)).length} / ${this.ratingIds.length}`;};
+      progress();
+      const worker=async()=>{while(!stopped&&token===this.token&&cursor<ids.length){
+        const id=ids[cursor++],image=new Image();
+        await new Promise((resolve,reject)=>{
+          let done=false,timer=null;
+          const finish=(error)=>{
+            if(done)return;done=true;clearTimeout(timer);image.onload=null;image.onerror=null;
+            cancels.delete(cancel);this.imageLoadCancels.delete(cancel);
+            if(error){if(typeof image.removeAttribute==='function')image.removeAttribute('src');else image.src='';reject(error);}else resolve();
+          };
+          const cancel=()=>{const error=new Error('图片加载已取消');error.name='AbortError';finish(error);};
+          cancels.add(cancel);this.imageLoadCancels.add(cancel);
+          image.onload=()=>{if(done)return;if(image.naturalWidth)finish();else image.onerror();};
+          image.onerror=()=>{const error=new Error(`图片 ${id} 载入失败，请检查网络后重试。`);error.code='image_load_error';finish(error);};
+          timer=setTimeout(()=>{const error=new Error(`图片 ${id} 载入超时，请检查网络后重试。`);error.code='image_load_timeout';finish(error);},this.config.imageLoadTimeoutMs);
+          image.src=base+id+'.jpg';
+          if(image.complete&&image.naturalWidth)finish();
+        });
+        if(stopped||token!==this.token)return;
+        this.images.set(id,image);progress();
+        this.event('image_loaded',{image_id:id,loaded:this.images.size,total:this.ratingIds.length});
       }};
-      await Promise.all(Array.from({length:Math.min(6,ids.length)},worker));
+      try{await Promise.all(Array.from({length:Math.min(4,ids.length)},worker));}
+      catch(error){stopped=true;for(const cancel of [...cancels])cancel();throw error;}
+    }
+    closeModel(instance) {
+      if(instance&&typeof instance.close==='function') {
+        try{Promise.resolve(instance.close()).catch(()=>{});}catch(_){/* Retired model cannot affect a retry. */}
+      }
     }
     scheduleCamera() {
       if(!this.runningCamera||this.cameraFrameHandle!==null)return;
@@ -325,6 +397,7 @@
     }
     stopCamera() {
       this.runningCamera=false;
+      for(const cancel of [...this.imageLoadCancels])cancel();
       if(this.watchdogHandle!==null){cancelAnimationFrame(this.watchdogHandle);this.watchdogHandle=null;}
       if(this.cameraFrameHandle!==null) {
         if(this.cameraFrameKind==='video')this.video.cancelVideoFrameCallback(this.cameraFrameHandle);else cancelAnimationFrame(this.cameraFrameHandle);
@@ -335,9 +408,7 @@
       this.awaitingFirstResultToken=null;
       const instance=this.mesh,wasPending=this.pending;
       this.mesh=null;this.pending=false;this.inferenceMeta=null;
-      if(instance&&!wasPending&&typeof instance.close==='function') {
-        try{Promise.resolve(instance.close()).catch(()=>{});}catch(_){/* Retry creates a fresh model instance. */}
-      }
+      if(instance&&!wasPending&&this.initializingModel?.instance!==instance)this.closeModel(instance);
     }
     onResults(results,sourceMeta) {
       const now=performance.now(),meta=sourceMeta||this.inferenceMeta||{};
@@ -375,6 +446,8 @@
       this.gaze.push(row);
       if(this.phase==='choice'&&this.trial&&this.trial.onset!==null) this.trial.samples.push(row);
       if(phaseMatch&&this.phase==='starting'&&this.awaitingFirstResultToken===this.token) {
+        if(this.startupStageInfo)this.event('startup_stage_complete',{...this.startupStageInfo,elapsed_ms:now-this.startupStageInfo.startedAt});
+        this.startupStageInfo=null;
         this.awaitingFirstResultToken=null;this.ready(this.model?'请重新验证':'准备校准');
       }
       if(phaseMatch&&this.phase==='ready') {
@@ -581,7 +654,7 @@
         [['继续并重新验证',()=>this.start()],['下载完整备份',()=>this.download('backup'),true]]);
     }
     fail(code,message) {
-      this.event('failure',{code,message});this.stopCamera();this.validationOK=false;this.enter('failure');
+      this.event('failure',{code,message,startup_stage:this.startupStageInfo?.name,stage_elapsed_ms:this.startupStageInfo?performance.now()-this.startupStageInfo.startedAt:null});this.stopCamera();this.validationOK=false;this.enter('failure');
       this.showPanel('暂时无法继续',[message,'已有数据保留在本页，可先下载诊断备份。'],
         [['重新启动摄像头',()=>this.start()],['下载完整备份',()=>this.download('backup'),true]]);
     }
