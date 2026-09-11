@@ -5,7 +5,7 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const version = '2.0.0';
+  const version = '2.0.2';
   const qualityThresholds = Object.freeze({ minEyeWidthPixels: 4, minEAR: 0.09, maxEAR: 0.65,
     minIrisRatio: 0.02, maxIrisRatio: 0.8, maxAbsLocalX: 0.8, maxAbsLocalY: 0.6 });
   const finite = value => typeof value === 'number' && Number.isFinite(value);
@@ -80,6 +80,51 @@
       note: '2D image geometry only; not a measured 3D head pose'
     };
     return result;
+  }
+
+  // Causal recovery gate: it only reads frame quality and a monotonic timestamp in ms.
+  // Defaults are engineering candidates, not demonstrated improvements in gaze accuracy.
+  function createTemporalQualityGate(options = {}) {
+    const settings = Object.assign({ recoveryMs: 100, minStableFrames: 3, maxGapMs: 500 }, options);
+    if (!finite(settings.recoveryMs) || settings.recoveryMs < 0 ||
+        !Number.isInteger(settings.minStableFrames) || settings.minStableFrames < 1 ||
+        !finite(settings.maxGapMs) || settings.maxGapMs <= 0) throw new RangeError('Invalid temporal quality gate options');
+    let lastTimestamp, lastInvalidTimestamp, stableFrames, recoveryReason, needsRecoveryAnchor;
+    function reset() {
+      lastTimestamp = null; lastInvalidTimestamp = null; stableFrames = 0;
+      recoveryReason = null; needsRecoveryAnchor = false;
+    }
+    reset();
+    function update(quality, timestamp) {
+      const rawValid = !!quality && quality.valid === true;
+      function rejectTimestamp(reason) {
+        // The bad timestamp cannot anchor a duration. Rebase on the next usable
+        // timestamp, retaining the recovery requirement instead of trusting it as
+        // the first healthy frame of a new stream.
+        reset(); needsRecoveryAnchor = true; recoveryReason = 'temporal_recovery';
+        return { valid: false, reason, rawValid, recovering: true, stableFrames: 0, msSinceInvalid: null };
+      }
+      if (!finite(timestamp) || timestamp < 0) return rejectTimestamp('invalid_timestamp');
+      if (lastTimestamp !== null && timestamp <= lastTimestamp) return rejectTimestamp('nonmonotonic_timestamp');
+      const gap = lastTimestamp !== null && timestamp - lastTimestamp > settings.maxGapMs;
+      lastTimestamp = timestamp;
+      if (needsRecoveryAnchor) { lastInvalidTimestamp = timestamp; needsRecoveryAnchor = false; }
+      if (gap) { stableFrames = 0; recoveryReason = 'temporal_gap_recovery'; }
+      if (!rawValid) {
+        lastInvalidTimestamp = timestamp; stableFrames = 0; recoveryReason = 'temporal_recovery';
+        const reason = quality && typeof quality.reason === 'string' && quality.reason ? quality.reason : 'invalid_quality';
+        return { valid: false, reason, rawValid, recovering: true, stableFrames, msSinceInvalid: 0 };
+      }
+      stableFrames = Math.min(stableFrames + 1, settings.minStableFrames);
+      const msSinceInvalid = lastInvalidTimestamp === null ? null : timestamp - lastInvalidTimestamp;
+      if (recoveryReason && (stableFrames < settings.minStableFrames ||
+          (msSinceInvalid !== null && msSinceInvalid < settings.recoveryMs))) {
+        return { valid: false, reason: recoveryReason, rawValid, recovering: true, stableFrames, msSinceInvalid };
+      }
+      recoveryReason = null;
+      return { valid: true, reason: null, rawValid, recovering: false, stableFrames, msSinceInvalid };
+    }
+    return { update, reset };
   }
 
   // Gaussian elimination with partial pivoting; ridge stabilizes correlated eyes.
@@ -312,5 +357,5 @@
       attemptCount: samples.length, validCount: validSamples.length, unassignedAttempts, diagnostics }, metrics, spread);
   }
 
-  return { version, qualityThresholds, extractFeatures, createCalibration, predict, evaluateValidation };
+  return { version, qualityThresholds, extractFeatures, createTemporalQualityGate, createCalibration, predict, evaluateValidation };
 }));

@@ -8,7 +8,7 @@
   });
 })(typeof window === 'undefined' ? null : window, function () {
   'use strict';
-  const VERSION = '2.0.1';
+  const VERSION = '2.0.2';
   const SCHEMA = 2;
   const CALIBRATION_TARGETS = [0.08, 0.5, 0.92].flatMap((y, row) =>
     [0.08, 0.5, 0.92].map((x, col) => ({ targetId: `c${row * 3 + col + 1}`, targetX: x, targetY: y })));
@@ -16,12 +16,13 @@
   const VALIDATION_TARGETS = [[.16,.16],[.5,.18],[.84,.16],[.18,.5],[.52,.52],[.82,.5],[.16,.84],[.5,.82],[.84,.84]]
     .map(([x,y],i) => ({ targetId: `v${i+1}`, targetX:x, targetY:y }));
   const CONFIG = Object.freeze({
-    schemaVersion: SCHEMA, layoutVersion: 'responsive-square-aoi-v2', settleMs: 600, collectMs: 1400, pointTimeoutMs: 6000,
+    schemaVersion: SCHEMA, layoutVersion: 'pixel-aligned-square-aoi-v2.0.2', settleMs: 600, collectMs: 1400, pointTimeoutMs: 6000,
     minValidFramesPerPoint: 12, validationEveryTrials: 50, fixationMinMs: 800, fixationMaxMs: 1000,
     maxDwellGapMs: 100, smoothTauMs: 65, smoothResetGapMs: 150,
     callbackGapWarningMs: 1000, callbackGapPauseMs: 5000, cameraStartupTimeoutMs: 20000,
     permissionTimeoutMs:60000, videoStartupTimeoutMs:20000, modelLoadTimeoutMs:120000,
     imageLoadTimeoutMs:30000, imageBatchTimeoutMs:180000,
+    temporalQuality:{recoveryMs:100,minStableFrames:3,maxGapMs:500},
     validation: { minCoverage:.8, minSamplesPerPoint:12, minTargetCount:9,
       minTargetSpanX:.4, minTargetSpanY:.4, maxMeanErrorNorm:.12, maxP95ErrorNorm:.25,
       maxMeanAbsErrorX:.10, maxMeanAbsErrorY:.10, maxP95AbsErrorX:.20,
@@ -39,7 +40,8 @@
     'phase','phase_id','trial_id','calibration_id','target_id','target_x','target_y','target_stage',
     'inference_phase_id','inference_trial_id','phase_match','video_current_time','media_time','presented_frames',
     'video_width','video_height','screen_width','screen_height','device_pixel_ratio','viewport_id',
-    'face_detected','eye_open','quality_valid','valid','valid_reason','left_ear','right_ear',
+    'face_detected','eye_open','quality_valid','temporal_quality_valid','temporal_quality_reason',
+    'temporal_recovering','temporal_stable_frames','temporal_ms_since_invalid','valid','valid_reason','left_ear','right_ear',
     'feature_lx','feature_ly','feature_rx','feature_ry','iris_ratio_left','iris_ratio_right','iris_ratio_mean',
     'head_center_x','head_center_y','head_scale','head_roll','model_id','model_hash',
     'gaze_x_raw','gaze_y_raw','gaze_x_smooth','gaze_y_smooth','offscreen','roi_raw','roi_smooth',
@@ -145,6 +147,7 @@
       this.cameraFrameHandle=null; this.cameraFrameKind=null; this.watchdogHandle=null; this.inferenceMeta=null; this.resumeAction='rating';
       this.participantId=''; this.viewportId=0; this.cameraSettings={};
       this.startupStageInfo=null;this.initializingModel=null;this.imageLoadCancels=new Set();
+      this.temporalQuality=window.GazeCore&&GazeCore.createTemporalQualityGate?GazeCore.createTemporalQualityGate(this.config.temporalQuality):null;
       this.canvas=document.getElementById('stage'); this.ctx=this.canvas.getContext('2d');
       this.panel=document.getElementById('panel'); this.status=document.getElementById('status');
       this.video=document.getElementById('camera'); this.ratingControls=document.getElementById('ratings');
@@ -245,7 +248,7 @@
       try {
         if(!window.isSecureContext)throw new Error('需要 HTTPS 或 localhost 安全页面');
         if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('此浏览器不支持摄像头访问');
-        if(!window.FaceMesh||!window.GazeCore)throw new Error('本地 MediaPipe / GazeCore 资源未能载入');
+        if(!window.FaceMesh||!window.GazeCore||!this.temporalQuality||!window.ValidationReport)throw new Error('实验脚本未完整载入。请保存备份后用新版链接重新打开。');
         if(!this.ratingIds.length)this.ratingIds=shuffled(Array.from({length:200},(_,i)=>i+1)).slice(0,this.ratingCount);
         const stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:'user',width:{ideal:640},height:{ideal:480},frameRate:{ideal:30,max:60}}});
         if(token!==this.token){stream.getTracks().forEach(t=>t.stop());return;}
@@ -272,7 +275,7 @@
           this.mesh=new FaceMesh({locateFile:file=>new URL(this.config.staticAssetBase+file,location.href).href});
           this.mesh.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:.6,minTrackingConfidence:.6,selfieMode:false});
           const instance=this.mesh;
-          instance.onResults(results=>this.onResults(results,instance.captureMeta||{}));
+          instance.onResults(results=>this.onResults(results,instance.captureMeta||{},instance));
         }
         const instance=this.mesh;
         const record={instance,promise:null};
@@ -397,6 +400,7 @@
     }
     stopCamera() {
       this.runningCamera=false;
+      if(this.temporalQuality)this.temporalQuality.reset();
       for(const cancel of [...this.imageLoadCancels])cancel();
       if(this.watchdogHandle!==null){cancelAnimationFrame(this.watchdogHandle);this.watchdogHandle=null;}
       if(this.cameraFrameHandle!==null) {
@@ -410,17 +414,23 @@
       this.mesh=null;this.pending=false;this.inferenceMeta=null;
       if(instance&&!wasPending&&this.initializingModel?.instance!==instance)this.closeModel(instance);
     }
-    onResults(results,sourceMeta) {
+    onResults(results,sourceMeta,sourceInstance) {
       const now=performance.now(),meta=sourceMeta||this.inferenceMeta||{};
       if(meta.phaseId===this.phaseId)this.lastCallback=now;
       const landmarks=results.multiFaceLandmarks&&results.multiFaceLandmarks[0];
       const extracted=GazeCore.extractFeatures(landmarks,this.video.videoWidth,this.video.videoHeight);
       const q=extracted.quality||{},f=extracted.features||[],iris=extracted.iris||{},diag=(extracted.diagnostics||{}).headProxy||{};
+      // A retired camera must not change the active stream's recovery history.
+      // Same-stream frames remain useful to this causal gate across target boundaries.
+      const currentCamera=this.runningCamera&&(!sourceInstance||sourceInstance===this.mesh);
+      const temporal=currentCamera&&this.temporalQuality?this.temporalQuality.update(q,meta.start):
+        {valid:false,reason:'stale_camera',recovering:false,stableFrames:0,msSinceInvalid:null};
       const phaseMatch=meta.phaseId===this.phaseId&&meta.viewportId===this.viewportId;
       const predicted=this.model&&q.valid?GazeCore.predict(this.model,f):{x:null,y:null,ok:false,reason:'uncalibrated'};
       const preStimulus=this.phase==='choice'&&this.trial&&(this.trial.onset===null||meta.onset==null||meta.start<this.trial.onset);
-      const valid=Boolean(q.valid&&predicted.ok&&phaseMatch&&!preStimulus);
-      const reason=!phaseMatch?'stale_phase':preStimulus?'pre_stimulus':!q.valid?(q.reason||'invalid_features'):!predicted.ok?(predicted.reason||'prediction_invalid'):'ok';
+      const valid=Boolean(q.valid&&temporal.valid&&predicted.ok&&phaseMatch&&!preStimulus);
+      const reason=!phaseMatch?'stale_phase':preStimulus?'pre_stimulus':!q.valid?(q.reason||'invalid_features'):
+        !temporal.valid?temporal.reason:!predicted.ok?(predicted.reason||'prediction_invalid'):'ok';
       if(valid)this.smoothed=smooth(this.smoothed,{x:predicted.x,y:predicted.y},now,this.config);else this.smoothed=null;
       const raw=classify(predicted.x,predicted.y,valid,this.aois,this.width,this.height);
       const sm=classify(this.smoothed&&this.smoothed.x,this.smoothed&&this.smoothed.y,valid,this.aois,this.width,this.height);
@@ -435,6 +445,9 @@
         video_width:this.video.videoWidth,video_height:this.video.videoHeight,screen_width:this.width,screen_height:this.height,
         device_pixel_ratio:devicePixelRatio,viewport_id:this.viewportId,face_detected:Boolean(q.faceDetected),eye_open:Boolean(q.eyeOpen),
         quality_valid:Boolean(q.valid),valid,valid_reason:reason,left_ear:q.leftEAR,right_ear:q.rightEAR,
+        temporal_quality_valid:temporal.valid,temporal_quality_reason:temporal.reason,
+        temporal_recovering:temporal.recovering,temporal_stable_frames:temporal.stableFrames,
+        temporal_ms_since_invalid:temporal.msSinceInvalid,
         feature_lx:f[0],feature_ly:f[1],feature_rx:f[2],feature_ry:f[3],iris_ratio_left:iris.leftRatio,
         iris_ratio_right:iris.rightRatio,iris_ratio_mean:iris.meanRatio,
         head_center_x:diag.centerX,head_center_y:diag.centerY,head_scale:diag.eyeSeparationNorm,head_roll:diag.rollRadians,
@@ -451,13 +464,13 @@
         this.awaitingFirstResultToken=null;this.ready(this.model?'请重新验证':'准备校准');
       }
       if(phaseMatch&&this.phase==='ready') {
-        this.status.textContent=`${this.pilot?'预实验 · ':''}${q.valid?'已检测到脸与睁眼，请保持位置稳定':q.faceDetected?'请睁眼并调整距离或光照':'请让整张脸进入前置摄像头'}`;
+        this.status.textContent=`${this.pilot?'预实验 · ':''}${q.valid?(temporal.valid?'已检测到脸与睁眼，请保持位置稳定':'正在等待眨眼或追踪中断后恢复稳定'):q.faceDetected?'请睁眼并调整距离或光照':'请让整张脸进入前置摄像头'}`;
       }
       if(target&&this.targetRecord&&phaseMatch&&meta.start>=this.targetRecord.collectStart&&
           meta.target&&meta.target.targetId===target.targetId) {
         this.targetRecord.attempts.push({sampleId:row.sample_id,targetId:target.targetId,targetX:target.targetX,targetY:target.targetY,
-          timestamp:now,features:f.slice(),valid:this.block.kind==='calibration'?Boolean(q.valid):valid,
-          reason:this.block.kind==='calibration'?(q.reason||null):reason,x:predicted.x,y:predicted.y});
+          timestamp:now,features:f.slice(),valid:this.block.kind==='calibration'?Boolean(q.valid&&temporal.valid):valid,
+          reason:this.block.kind==='calibration'?(!q.valid?q.reason:!temporal.valid?temporal.reason:null):reason,x:predicted.x,y:predicted.y});
       }
     }
     ready(title) {
@@ -492,7 +505,11 @@
         this.ctx.beginPath();this.ctx.arc(x,y,4,0,2*Math.PI);this.ctx.fillStyle='#172d29';this.ctx.fill();
       },onset=>{
         this.targetRecord.onset=onset;this.targetRecord.collectStart=onset+this.config.settleMs;
-        this.event('target_onset',{...target,block_id:block.id,collect_start:this.targetRecord.collectStart,onset_definition:this.config.onsetDefinition},onset);
+        const canvasRect=this.canvasRect();
+        this.targetRecord.canvasRect=canvasRect;
+        this.targetRecord.renderedTargetCss={x:canvasRect.left+target.targetX*canvasRect.width,y:canvasRect.top+target.targetY*canvasRect.height};
+        this.event('target_onset',{...target,block_id:block.id,collect_start:this.targetRecord.collectStart,
+          canvas_rect:canvasRect,rendered_target_css:this.targetRecord.renderedTargetCss,onset_definition:this.config.onsetDefinition},onset);
         this.later(this.config.settleMs+this.config.collectMs,()=>this.checkTarget());
       });
     }
@@ -532,16 +549,22 @@
         this.validationOK=evaluation.passed;this.validationId=block.id;
         this.event('validation_result',{validation_id:block.id,passed:evaluation.passed,failures:evaluation.failures});
         this.enter('validation_report');this.clear();
-        const pct=v=>Number.isFinite(v)?`${(v*100).toFixed(1)}%`:'无数据';
-        const num=v=>Number.isFinite(v)?v.toFixed(3):'无数据';
-        const lines=[`X平均绝对误差：屏宽 ${pct(evaluation.meanAbsErrorX)}；Y：屏高 ${pct(evaluation.meanAbsErrorY)}。`,
-          `二维平均归一化误差 ${num(evaluation.meanErrorNorm)}；P95 ${num(evaluation.p95ErrorNorm)}；有效覆盖 ${pct(evaluation.coverage)}。`,
-          '这是已知目标的验证误差，不是注视真值、视角度数或精度保证。请保留完整诊断。'];
-        if(!evaluation.passed)lines.push('未通过项目：'+JSON.stringify(evaluation.failures));
-        this.showPanel(evaluation.passed?'独立验证通过':'独立验证未通过',lines,
+        const report=window.ValidationReport.summarizeValidation(evaluation);
+        this.status.textContent=`v${VERSION} · 独立验证${evaluation.passed?'通过':'未通过'} · 请查看报告`;
+        this.showPanel(report.headline,report.lines,
           [...(evaluation.passed?[['继续任务',()=>this.continueAfterValidation()]]:[]),
             ['重新完整校准',()=>this.startBlock('calibration'),true],
             ['下载诊断备份',()=>this.download('backup'),true],['暂停',()=>this.pause('validation_pause'),true]]);
+        const details=document.createElement('details');details.className='validation-points';
+        const summary=document.createElement('summary');summary.textContent=`查看各点结果与原因（${report.points.filter(p=>!p.passed).length} 个点未通过）`;details.append(summary);
+        for(const point of report.points) {
+          const card=document.createElement('article');card.className=point.passed?'point-pass':'point-fail';
+          const heading=document.createElement('h2');heading.textContent=point.label;card.append(heading);
+          const overview=document.createElement('p');overview.textContent=point.summary;card.append(overview);
+          for(const line of point.details){const p=document.createElement('p');p.textContent=line;card.append(p);}
+          details.append(card);
+        }
+        this.panel.insertBefore(details,Array.from(this.panel.children).find(el=>el.tagName==='BUTTON'));
       }
     }
     continueAfterValidation() {
@@ -671,10 +694,19 @@
       const dpr=window.devicePixelRatio||1,v=window.visualViewport;
       this.viewportSignature=[innerWidth,innerHeight,dpr,v?v.width:null,v?v.height:null,v?v.scale:null].join('|');
       this.canvas.width=Math.round(this.width*dpr);this.canvas.height=Math.round(this.height*dpr);
+      // Use the exact same CSS pixel dimensions for targets, AOIs and rendering.
+      // 100vh can differ from the browser's current innerHeight on mobile.
+      this.canvas.style.width=this.width+'px';this.canvas.style.height=this.height+'px';
       this.ctx.setTransform(dpr,0,0,dpr,0,0);this.viewportId++;
       this.viewports.push({id:this.viewportId,timestamp:performance.now(),reason,width:this.width,height:this.height,dpr,
-        visualWidth:v?v.width:null,visualHeight:v?v.height:null,visualScale:v?v.scale:null,orientation:screen.orientation?screen.orientation.type:null});
+        canvasRect:this.canvasRect(),visualWidth:v?v.width:null,visualHeight:v?v.height:null,
+        visualOffsetLeft:v?v.offsetLeft:null,visualOffsetTop:v?v.offsetTop:null,
+        visualScale:v?v.scale:null,orientation:screen.orientation?screen.orientation.type:null});
       this.clear();
+    }
+    canvasRect() {
+      const r=this.canvas.getBoundingClientRect();
+      return {left:r.left,top:r.top,width:r.width,height:r.height};
     }
     finish(message) {
       this.enter('finished');this.trial=null;this.target=null;this.block=null;this.aois=[];this.stopCamera();
