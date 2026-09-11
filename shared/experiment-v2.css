@@ -20,6 +20,8 @@ button.secondary {background:#e7eeea;color:#1b5149}
 .validation-points {margin:16px 0;border:1px solid #dce3de;border-radius:10px;padding:12px}
 .validation-points summary {font-size:14px;font-weight:600;line-height:1.5;cursor:pointer;color:#176b61}
 .validation-points article {margin-top:12px;padding:10px 12px;background:#f5f7f4;border-left:3px solid #176b61}
+.validation-points article.point-diagnostic {border-left-color:#647a8d;background:#f3f6f8}
+.validation-points .point-metrics summary {font-size:12px;margin-top:7px}
 .validation-points article.point-fail {border-left-color:#ad5145;background:#faf5f2}
 #panel .validation-points h2 {font-size:15px;margin:0 0 5px;line-height:1.5}
 #panel .validation-points p {font-size:12px;margin:4px 0;line-height:1.55}
