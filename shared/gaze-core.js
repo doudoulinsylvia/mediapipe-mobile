@@ -5,7 +5,7 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const version = '2.1.0';
+  const version = '2.2.0';
   const qualityThresholds = Object.freeze({ minEyeWidthPixels: 4, minEAR: 0.09, maxEAR: 0.65,
     minIrisRatio: 0.02, maxIrisRatio: 0.8, maxAbsLocalX: 0.8, maxAbsLocalY: 0.6 });
   const finite = value => typeof value === 'number' && Number.isFinite(value);
@@ -159,11 +159,14 @@
     minFeatureStd: 1e-6, ridgeLambda: 0.01, maxPivotRatio: 1e8
   };
   function createCalibration(samples, options = {}) {
+    return fitCalibration(samples, options, false);
+  }
+  function fitCalibration(samples, options, representativeMode) {
     const settings = Object.assign({}, calibrationDefaults, options);
     const diagnostics = { settings, targetSummaries: [], rejectedSamples: 0, warnings: [], note: 'Calibration fit is not an accuracy validation. Independent held-out targets are required.' };
     const fail = reason => ({ ok: false, reason, model: null, diagnostics });
     if (!Array.isArray(samples) || !samples.length) return fail('no_calibration_samples');
-    if (Object.keys(calibrationDefaults).some(key => !finite(settings[key]) || settings[key] < 0) || settings.ridgeLambda <= 0 || settings.minTargetCount < 3 || settings.minSamplesPerTarget < 2) return fail('invalid_calibration_options');
+    if (Object.keys(calibrationDefaults).some(key => !finite(settings[key]) || settings[key] < 0) || settings.ridgeLambda <= 0 || settings.minTargetCount < 3 || settings.minSamplesPerTarget < (representativeMode ? 1 : 2)) return fail('invalid_calibration_options');
     if (settings.sampleWeightGroup !== undefined && (typeof settings.sampleWeightGroup !== 'string' || !settings.sampleWeightGroup)) return fail('invalid_sample_weight_group');
     const groups = new Map();
     let featureCount = null;
@@ -313,11 +316,14 @@
       integrityFailures: [], roundSummaries: [1, 2].map(roundIndex => ({ roundIndex, attemptCount: 0, validCount: 0, presentationCount: 0, targetCount: 0, invalidReasons: {}, presentations: [] })),
       perTargetFit: [], trainingMetrics: null
     };
+    const aggregation = options.aggregation === undefined ? 'raw_frames' : options.aggregation;
+    if (options.aggregation !== undefined) diagnostics.aggregation = aggregation;
     const fail = reason => {
       for (const candidate of candidates) if (candidate.reason === 'not_evaluated') candidate.reason = reason;
       return { ok: false, reason, model: null, diagnostics };
     };
     if (!validOptions) return fail('invalid_repeated_calibration_options');
+    if (!['raw_frames', 'presentation_median'].includes(aggregation)) return fail('invalid_calibration_aggregation');
     if (!Array.isArray(samples) || !samples.length) return fail('no_calibration_samples');
     if (!Number.isInteger(diagnostics.minSamplesPerPresentation) || diagnostics.minSamplesPerPresentation < 12) return fail('invalid_repeated_calibration_options');
     const expected = new Map();
@@ -375,12 +381,29 @@
     const transformed = (sample, candidate) => ({ ...sample, features: candidate.id === 'binocular_mean_affine'
       ? [(sample.features[0] + sample.features[2]) / 2, (sample.features[1] + sample.features[3]) / 2] : sample.features.slice() });
     function fitSegments(selected, candidate) {
-      const result = createCalibration(selected.flatMap(segment => segment.samples.map(sample => transformed(sample, candidate))), {
-        expectedTargetIds: Array.from(expected.keys()), minTargetCount: 9, minSamplesPerTarget: 12,
+      // Each representative is derived only from a training presentation's valid
+      // original four-dimensional frames, before the candidate's transform.
+      // The protocol-level 12-valid-frame requirement above remains mandatory.
+      const representatives = aggregation === 'presentation_median' ? selected.map(segment => ({
+        ...segment.samples[0], features: [0, 1, 2, 3].map(index => quantile(segment.samples.map(sample => sample.features[index]), .5))
+      })) : null;
+      const trainingSamples = representatives || selected.flatMap(segment => segment.samples);
+      const result = fitCalibration(trainingSamples.map(sample => transformed(sample, candidate)), {
+        expectedTargetIds: Array.from(expected.keys()), minTargetCount: 9, minSamplesPerTarget: representatives ? 1 : 12,
         ridgeLambda: 0.01, sampleWeightGroup: 'presentationId'
-      });
+      }, Boolean(representatives));
+      if (options.aggregation !== undefined) result.diagnostics.aggregation = aggregation;
+      if (representatives) result.diagnostics.representativeSummary = {
+        method: 'Coordinate-wise median of original four features per training presentation; then apply candidate feature transform.',
+        trainingPresentationCount: selected.length, trainingRawValidFrameCount: selected.reduce((sum, segment) => sum + segment.samples.length, 0),
+        representativeCount: representatives.length,
+        representatives: selected.map((segment, index) => ({ targetId: segment.targetId, roundIndex: segment.roundIndex,
+          presentationId: segment.presentationId, validFrameCount: segment.samples.length, features: representatives[index].features.slice() })),
+        limitation: 'Representative residuals are training diagnostics only. Cross-round scores and per-target final diagnostics continue to use every original valid test frame.'
+      };
       if (result.ok) {
         result.model.candidateId = candidate.id; result.model.inputFeatureCount = 4;
+        if (options.aggregation !== undefined) result.model.aggregation = aggregation;
         if (candidate.id === 'binocular_mean_affine') result.model.featureTransform = { kind: 'binocular_mean', inputFeatureCount: 4, outputFeatureCount: 2 };
       }
       return result;

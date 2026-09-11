@@ -8,7 +8,7 @@
   });
 })(typeof window === 'undefined' ? null : window, function () {
   'use strict';
-  const VERSION = '2.1.0';
+  const VERSION = '2.2.0';
   const SCHEMA = 2;
   const CALIBRATION_TARGETS = [0.08, 0.5, 0.92].flatMap((y, row) =>
     [0.08, 0.5, 0.92].map((x, col) => ({ targetId: `c${row * 3 + col + 1}`, targetX: x, targetY: y })));
@@ -17,7 +17,9 @@
     .map(([x,y],i) => ({ targetId: `v${i+1}`, targetX:x, targetY:y }));
   const CONFIG = Object.freeze({
     schemaVersion: SCHEMA, layoutVersion: 'pixel-aligned-square-aoi-v2.0.2', settleMs: 600, collectMs: 1400, pointTimeoutMs: 6000,
-    calibrationRounds:2, calibrationProtocol:'two_round_cross_validation_v1',
+    calibrationRounds:2, calibrationProtocol:'stable_two_round_median_v2', calibrationAggregation:'presentation_median',
+    calibrationPointTimeoutMs:12000, preparationCountdownMs:3000, preparationTimeoutMs:18000,
+    calibrationStability:{windowMs:600,minFrames:12,maxGapMs:150,maxSpread:.06,maxDrift:.025,maxStep:.08},
     minValidFramesPerPoint: 12, validationEveryTrials: 50, fixationMinMs: 800, fixationMaxMs: 1000,
     maxDwellGapMs: 100, smoothTauMs: 65, smoothResetGapMs: 150,
     callbackGapWarningMs: 1000, callbackGapPauseMs: 5000, cameraStartupTimeoutMs: 20000,
@@ -31,6 +33,8 @@
       maxSampleGapMs:500, requireTimestamps:true },
     staticAssetBase: '../food2/mp/package/',
     assetIdentity: '@mediapipe/face_mesh@0.4.1633559619 (local package)',
+    tasksAssetBase:'../shared/tasks-vision/0.10.32/',
+    tasksAssetIdentity:'@mediapipe/tasks-vision@0.10.32; face_landmarker float16/1; GPU; VIDEO; numFaces=1',
     vendorManifest: '../shared/vendor-manifest.json (SHA-256 inventory of local MediaPipe assets)',
     onsetDefinition: 'performance.now inside requestAnimationFrame after canvas draw; software draw time, not measured physical photon onset',
     dwellRule: 'Raw predictions; an interval counts only when consecutive valid callbacks have the same rectangular AOI, within one trial and <= maxDwellGapMs. Everything else is UNKNOWN; no last-sample extrapolation.',
@@ -47,7 +51,8 @@
     'feature_lx','feature_ly','feature_rx','feature_ry','iris_ratio_left','iris_ratio_right','iris_ratio_mean',
     'head_center_x','head_center_y','head_scale','head_roll','model_id','model_hash',
     'gaze_x_raw','gaze_y_raw','gaze_x_smooth','gaze_y_smooth','offscreen','roi_raw','roi_smooth',
-    'horizontal_band','vertical_band','inference_trial_onset','current_trial_onset'
+    'horizontal_band','vertical_band','inference_trial_onset','current_trial_onset',
+    'tracking_engine','tracking_diagnostics','preparation_stability','calibration_stability','calibration_window_id'
   ];
   const BEHAVIOR_HEADERS = ['schema_version','run_id','trial_id','trial_index','attempt','phase_id','layout','image_1','image_2',
     'rating_1','rating_2','position_1','position_2','onset_timestamp','response_timestamp','rt_ms','choice','chosen_image',
@@ -142,7 +147,13 @@
     constructor(layout) {
       this.layout=layout==='vertical'?'vertical':'horizontal';
       this.pilot=new URLSearchParams(location.search).get('pilot')==='1';
+      this.engine=new URLSearchParams(location.search).get('engine')||document.body.dataset.engine||'legacy';
       this.config=JSON.parse(JSON.stringify(CONFIG));
+      this.config.trackingEngine=this.engine;
+      if(this.engine==='tasks') {
+        this.config.assetIdentity=this.config.tasksAssetIdentity;
+        this.config.vendorManifest='../shared/tasks-vision/0.10.32/manifest.json';
+      }
       this.ratingCount=this.pilot?6:200; this.trialCount=this.pilot?6:150;
       this.runId=`${new Date().toISOString().replace(/[:.]/g,'-')}-${crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2)}`;
       this.phase='welcome'; this.phaseId='phase-0'; this.phaseSequence=0; this.token=0; this.timer=null;
@@ -156,6 +167,7 @@
       this.cameraFrameHandle=null; this.cameraFrameKind=null; this.watchdogHandle=null; this.inferenceMeta=null; this.resumeAction='rating';
       this.participantId=''; this.viewportId=0; this.cameraSettings={};
       this.startupStageInfo=null;this.initializingModel=null;this.imageLoadCancels=new Set();
+      this.samplingGate=null;this.collectionGate=null;this.preparation=null;
       this.temporalQuality=window.GazeCore&&GazeCore.createTemporalQualityGate?GazeCore.createTemporalQualityGate(this.config.temporalQuality):null;
       this.canvas=document.getElementById('stage'); this.ctx=this.canvas.getContext('2d');
       this.panel=document.getElementById('panel'); this.status=document.getElementById('status');
@@ -185,7 +197,8 @@
         this.event(document.hidden?'page_hidden':'page_visible',{});
         if(document.hidden&&this.runningCamera) this.pause('page_hidden');
       });
-      window.addEventListener('pagehide',()=>{this.event('pagehide',{}); if(this.phase==='starting')this.pause('page_hidden');else this.stopCamera();});
+      window.addEventListener('pagehide',()=>{this.event('pagehide',{});
+        if(!['welcome','paused','finished'].includes(this.phase))this.pause('page_hidden');else this.stopCamera();});
       window.addEventListener('beforeunload',e=>{
         if(this.gaze.length&&this.phase!=='finished') {e.preventDefault();e.returnValue='';}
       });
@@ -236,11 +249,15 @@
       this.panel.hidden=false;
     }
     welcome() {
+      if(!['legacy','tasks'].includes(this.engine)||this.engine==='tasks'&&!this.pilot) {
+        this.showPanel('请使用预实验入口',['新版检测器目前只用于预实验对照。请打开带 pilot=1 的对应入口；本次没有启动相机或自动切换检测器。'],[]);return;
+      }
       this.status.textContent=`v${VERSION} · ${this.pilot?'预实验模式 · 6评分 / 6选择':'手机眼动实验 · 改进版'}`;
       this.showPanel(this.pilot?'预实验模式':'手机食物选择实验',[
         `本次 ${this.ratingCount} 张图片评分、${this.trialCount} 次${this.layout==='vertical'?'上下':'左右'}选择。请固定手机，保持光照和观看距离稳定。`,
         '需要前置摄像头。图像只在本设备处理，不保存照片或视频，不自动上传数据。请在 Safari / Chrome 的 HTTPS 页面打开。',
-        '两轮九点校准约需40–60秒，随后查看逐点报告，再做约20–30秒的独立验证。验证不过关时不能进入任务；通过也不代表已经达到科学实验精度。',
+        '先做中央圆点练习，再进行两轮九点校准，通常约1–2分钟。圆点周围进度环填满后再看下一个点；不稳定时会重新采样。随后进行独立验证。',
+        this.engine==='tasks'?'本入口为新版检测器对照预实验，尚未证实比原版更准确。':'本入口使用原检测器，测试稳定采样与稳健拟合的改进。',
         '结束后请下载完整备份。关闭或刷新页面会丢失尚未下载的数据。'
       ],[['开启摄像头并准备',()=>this.start()]]);
       const label=document.createElement('label');label.textContent='参与者编号（可选，不填写姓名）';
@@ -257,7 +274,8 @@
       try {
         if(!window.isSecureContext)throw new Error('需要 HTTPS 或 localhost 安全页面');
         if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('此浏览器不支持摄像头访问');
-        if(!window.FaceMesh||!window.GazeCore||!GazeCore.createRepeatedCalibration||!this.temporalQuality||!window.ValidationReport||!window.CalibrationReport)throw new Error('实验脚本未完整载入。请保存备份后用新版链接重新打开。');
+        if(!['legacy','tasks'].includes(this.engine)||this.engine==='tasks'&&!this.pilot)throw new Error('新版检测器仅限预实验入口');
+        if(!(this.engine==='tasks'?window.TrackingAdapter:window.FaceMesh)||!window.CalibrationStability||!window.GazeCore||!GazeCore.createRepeatedCalibration||!this.temporalQuality||!window.ValidationReport||!window.CalibrationReport)throw new Error('实验脚本未完整载入。请保存备份后用新版链接重新打开。');
         if(!this.ratingIds.length)this.ratingIds=shuffled(Array.from({length:200},(_,i)=>i+1)).slice(0,this.ratingCount);
         const stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:'user',width:{ideal:640},height:{ideal:480},frameRate:{ideal:30,max:60}}});
         if(token!==this.token){stream.getTracks().forEach(t=>t.stop());return;}
@@ -272,7 +290,7 @@
         stream.getVideoTracks()[0].addEventListener('ended',()=>{
           if(this.stream===stream&&(this.runningCamera||this.phase==='starting'))this.pause('camera_track_ended');
         });
-        this.prepareStage('model','3 / 5 · 加载眼动模型','相机已开启。首次需要下载约 10 MB 的模型并初始化，较慢网络最多等待 2 分钟；请保持页面在前台。',
+        this.prepareStage('model','3 / 5 · 加载眼动模型','相机已开启。首次需要下载模型并初始化，较慢网络最多等待 2 分钟；请保持页面在前台。',
           this.config.modelLoadTimeoutMs,'眼动模型加载超时，相机授权已成功。请换稳定网络后重试；若仍停在此步骤，请先下载备份，再刷新 Safari 页面。');
         // The pinned MediaPipe loader writes global factories. Never run two
         // initializations concurrently, including a canceled earlier attempt.
@@ -281,10 +299,11 @@
           if(token!==this.token)return;
         }
         if(!this.mesh) {
-          this.mesh=new FaceMesh({locateFile:file=>new URL(this.config.staticAssetBase+file,location.href).href});
-          this.mesh.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:.6,minTrackingConfidence:.6,selfieMode:false});
+          this.mesh=this.engine==='tasks'?window.TrackingAdapter.create({engine:'tasks',assetBase:new URL(this.config.tasksAssetBase,location.href).href}):
+            new FaceMesh({locateFile:file=>new URL(this.config.staticAssetBase+file,location.href).href});
+          if(this.engine==='legacy')this.mesh.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:.6,minTrackingConfidence:.6,selfieMode:false});
           const instance=this.mesh;
-          instance.onResults(results=>this.onResults(results,instance.captureMeta||{},instance));
+          instance.onResults((results,captured)=>this.onResults(results,captured||instance.captureMeta||{},instance));
         }
         const instance=this.mesh;
         const record={instance,promise:null};
@@ -293,7 +312,7 @@
         // than rejecting initialize(). Preserve the resource failure in diagnostics.
         const resourceError=e=>{
           if(token!==this.token||this.startupStageInfo?.name!=='model')return;
-          const assetUrl=new URL(this.config.staticAssetBase,location.href).href;
+          const assetUrl=new URL(this.engine==='tasks'?this.config.tasksAssetBase:this.config.staticAssetBase,location.href).href;
           if(typeof e.filename==='string'&&e.filename.startsWith(assetUrl)) {
             this.event('startup_resource_error',{filename:e.filename,message:e.message});
             this.fail('model_resource_error','眼动模型资源加载失败。请检查网络；保存备份后刷新页面可重新加载模型。');
@@ -308,6 +327,9 @@
           });
         await record.promise;
         if(token!==this.token)return;
+        this.trackingIdentity=instance.identity||{engine:'legacy',packageVersion:'0.4.1633559619',
+          options:{maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:.6,minTrackingConfidence:.6,selfieMode:false}};
+        this.event('tracking_engine_ready',this.trackingIdentity);
         this.prepareStage('images','4 / 5 · 加载实验图片',`正在准备 ${this.ratingIds.length} 张图片，已完成的图片会保留供重试。`,
           this.config.imageBatchTimeoutMs,'实验图片加载超时。相机与模型已成功启动，请检查网络后重试；已加载的图片会保留。');
         await this.preloadImages(token);
@@ -383,7 +405,7 @@
         onset:this.trial?this.trial.onset:null,videoTime:currentTime,mediaTime:metadata?metadata.mediaTime:null,
         presentedFrames:metadata?metadata.presentedFrames:null,target:this.target?{...this.target}:null,viewportId:this.viewportId};
       const instance=this.mesh;this.inferenceMeta=meta;instance.captureMeta=meta;
-      try{await instance.send({image:this.video});}
+      try{await instance.send({image:this.video,timestamp:now});}
       catch(error){this.event('inference_error',{message:error.message,inference_start:now});if(instance===this.mesh)this.pause('inference_error');}
       finally {
         if(instance===this.mesh){this.pending=false;this.inferenceMeta=null;this.scheduleCamera();}
@@ -453,7 +475,7 @@
         calibration_round:target?target.roundIndex||null:null,target_presentation_id:target?target.presentationId||null:null,
         inference_calibration_round:meta.target?meta.target.roundIndex||null:null,
         inference_target_presentation_id:meta.target?meta.target.presentationId||null:null,
-        target_stage:target?(now<this.targetRecord.collectStart?'settle':'collect'):null,
+        target_stage:target?(this.block?.kind==='calibration'?this.targetRecord.samplingStage:now<this.targetRecord.collectStart?'settle':'collect'):null,
         inference_phase_id:meta.phaseId,inference_trial_id:meta.trialId,phase_match:phaseMatch,
         video_current_time:meta.videoTime,media_time:meta.mediaTime,presented_frames:meta.presentedFrames,
         video_width:this.video.videoWidth,video_height:this.video.videoHeight,screen_width:this.width,screen_height:this.height,
@@ -469,7 +491,9 @@
         gaze_x_smooth:this.smoothed?this.smoothed.x:null,gaze_y_smooth:this.smoothed?this.smoothed.y:null,
         offscreen:predicted.ok?(predicted.x<0||predicted.x>1||predicted.y<0||predicted.y>1):null,
         roi_raw:raw.roi,roi_smooth:sm.roi,horizontal_band:raw.horizontal,vertical_band:raw.vertical,
-        inference_trial_onset:meta.onset,current_trial_onset:this.trial?this.trial.onset:null};
+        inference_trial_onset:meta.onset,current_trial_onset:this.trial?this.trial.onset:null,
+        tracking_engine:this.engine,tracking_diagnostics:currentCamera?results.diagnostics||null:null,
+        preparation_stability:null,calibration_stability:null,calibration_window_id:null};
       this.gaze.push(row);
       if(this.phase==='choice'&&this.trial&&this.trial.onset!==null) this.trial.samples.push(row);
       if(phaseMatch&&this.phase==='starting'&&this.awaitingFirstResultToken===this.token) {
@@ -480,7 +504,16 @@
       if(phaseMatch&&this.phase==='ready') {
         this.status.textContent=`${this.pilot?'预实验 · ':''}${q.valid?(temporal.valid?'已检测到脸与睁眼，请保持位置稳定':'正在等待眨眼或追踪中断后恢复稳定'):q.faceDetected?'请睁眼并调整距离或光照':'请让整张脸进入前置摄像头'}`;
       }
-      if(target&&this.targetRecord&&phaseMatch&&meta.start>=this.targetRecord.collectStart&&
+      if(currentCamera&&phaseMatch&&this.phase==='preparation'&&this.preparation&&meta.start>=this.preparation.gateStart) {
+        this.preparation.state=this.samplingGate.update({timestamp:meta.start,valid:Boolean(q.valid&&temporal.valid),features:f});
+        this.preparation.lastSample=meta.start;
+        row.preparation_stability=this.preparation.state;
+      }
+      if(currentCamera&&phaseMatch&&targetMatch&&this.phase==='calibration'&&target&&this.targetRecord) {
+        this.calibrationSample(row,meta,f,Boolean(q.valid&&temporal.valid),!q.valid?q.reason:temporal.reason);
+      }
+      // Independent validation retains its original fixed window and raw quality rules.
+      if(this.phase==='validation'&&target&&this.targetRecord&&currentCamera&&phaseMatch&&meta.start>=this.targetRecord.collectStart&&
           meta.target&&meta.target.targetId===target.targetId&&meta.target.presentationId===target.presentationId&&
           meta.target.roundIndex===target.roundIndex) {
         this.targetRecord.attempts.push({sampleId:row.sample_id,targetId:target.targetId,targetX:target.targetX,targetY:target.targetY,
@@ -492,10 +525,101 @@
     ready(title) {
       this.enter('ready');this.target=null;this.block=null;this.aois=[];this.clear();
       this.status.textContent=this.pilot?'预实验模式 · 请保持手机与头部稳定':'请保持手机与头部稳定';
-      this.showPanel(title,['请注视随后出现的圆点，不要点击圆点。校准分两轮，同样九个位置会以不同顺序各出现一次；每轮约20秒。眨眼可以自然进行。',
+      this.showPanel(title,['请注视随后出现的圆点，不要点击圆点。先做中央圆点练习，再自动开始两轮九点校准；进度环填满后再看下一个点。可以自然眨眼，不稳定时会重新采样。',
         '独立验证检查 X、Y 和二维误差及覆盖率。初始门槛：两轴平均绝对误差各≤屏幕对应边长10%，二维平均归一化误差≤0.12，覆盖率≥80%；还检查P95与每个点。'],
-        [[this.model?'开始独立验证':'开始两轮九点校准',()=>this.startBlock(this.model?'validation':'calibration')],
-         ...(this.model?[['重新完整校准',()=>this.startBlock('calibration'),true]]:[]),['暂停',()=>this.pause('user_pause'),true]]);
+        [[this.model?'开始独立验证':'准备好了，开始练习',()=>this.model?this.startBlock('validation'):this.prepareCalibration()],
+         ...(this.model?[['重新完整校准',()=>this.prepareCalibration(),true]]:[]),['暂停',()=>this.pause('user_pause'),true]]);
+    }
+    drawTarget(target,progress=0,color='#176b61',label='') {
+      this.clear();const x=target.targetX*this.width,y=target.targetY*this.height;
+      this.ctx.beginPath();this.ctx.arc(x,y,17,0,2*Math.PI);this.ctx.fillStyle='#fff';this.ctx.fill();
+      this.ctx.lineWidth=3;this.ctx.strokeStyle=color;this.ctx.stroke();
+      this.ctx.beginPath();this.ctx.arc(x,y,23,-Math.PI/2,-Math.PI/2+Math.max(0,Math.min(1,progress))*2*Math.PI);
+      this.ctx.lineWidth=4;this.ctx.strokeStyle=color;this.ctx.stroke();
+      this.ctx.beginPath();this.ctx.arc(x,y,4,0,2*Math.PI);this.ctx.fillStyle='#172d29';this.ctx.fill();
+      if(label){this.ctx.font='18px system-ui';this.ctx.textAlign='center';this.ctx.fillText(label,x,y-40);}
+    }
+    prepareCalibration() {
+      if(!this.runningCamera||!['ready','calibration_report','validation_report','failure'].includes(this.phase))return;
+      this.validationOK=false;this.validationId=null;this.model=null;this.modelId=null;this.modelHash=null;
+      this.enter('preparation');this.block=null;this.target=null;this.targetRecord=null;this.aois=[];
+      this.samplingGate=window.CalibrationStability.createGate(this.config.calibrationStability);
+      this.collectionGate=null;
+      this.preparation={onset:null,gateStart:Infinity,state:null,lastSample:null};
+      this.status.textContent=`v${VERSION} · 注视中央圆点，倒计时后自动开始`;
+      this.drawOnFrame(()=>this.drawTarget({targetX:.5,targetY:.5},0,'#176b61','3'),onset=>{
+        this.preparation.onset=onset;this.preparation.gateStart=onset+this.config.preparationCountdownMs;
+        this.event('preparation_onset',{countdown_ms:this.config.preparationCountdownMs,stability:this.config.calibrationStability},onset);
+        this.later(100,()=>this.checkPreparation());
+      });
+    }
+    checkPreparation() {
+      const p=this.preparation,now=performance.now();if(this.phase!=='preparation'||!p)return;
+      if(now-p.onset>=this.config.preparationTimeoutMs) {
+        this.event('preparation_failed',{reason:'stability_timeout',elapsed_ms:now-p.onset,last_state:p.state});
+        this.enter('failure');this.clear();
+        this.showPanel('暂未获得稳定采样',['请让整张脸进入画面，保持手机、光照和观看距离稳定。准备阶段的诊断已保留。'],
+          [['重新练习',()=>this.prepareCalibration()],['下载诊断备份',()=>this.download('backup'),true],['暂停',()=>this.pause('preparation_failed'),true]]);return;
+      }
+      if(now>=p.gateStart&&p.state?.stable&&now-p.lastSample<=this.config.calibrationStability.maxGapMs) {
+        this.event('preparation_complete',{elapsed_ms:now-p.onset,stability:p.state});
+        this.preparation=null;this.samplingGate.reset();this.enter('ready');this.startBlock('calibration');return;
+      }
+      const left=Math.max(0,Math.ceil((p.gateStart-now)/1000));
+      this.drawTarget({targetX:.5,targetY:.5},left?0:Math.min(1,(p.state?.durationMs||0)/this.config.calibrationStability.windowMs),
+        '#176b61',left?String(left):'继续注视');
+      this.later(100,()=>this.checkPreparation());
+    }
+    calibrationSample(row,meta,features,valid,reason) {
+      const record=this.targetRecord;
+      if(!Number.isFinite(record.onset)||meta.start<record.settleEnd||meta.start>record.deadline)return;
+      const state=this.samplingGate.update({timestamp:meta.start,valid,features});
+      record.lastStability=state;record.lastSampleTimestamp=meta.start;
+      row.calibration_stability=state;
+      if(record.samplingStage==='settle')record.samplingStage='waiting';
+      const attempt={sampleId:row.sample_id,targetId:record.targetId,targetX:record.targetX,targetY:record.targetY,
+        roundIndex:record.roundIndex,presentationId:record.presentationId,timestamp:row.result_timestamp,
+        inferenceTimestamp:meta.start,features:features.slice(),valid,reason:valid?null:reason,
+        x:row.gaze_x_raw,y:row.gaze_y_raw,fitEligible:false,samplingStage:record.samplingStage,windowId:null};
+      // Retain waiting, interrupted and successful attempts; never select by target error.
+      record.attempts.push(attempt);
+      if(record.samplingStage==='collect'&&meta.start>=record.collectStart) {
+        attempt.windowId=record.activeWindow.id;
+        if(!state.stable){this.interruptCalibrationWindow(state.reason,meta.start);}
+        else {
+          record.activeWindow.sampleIds.push(attempt.sampleId);
+          record.activeWindow.lastSampleTimestamp=meta.start;
+          const whole=this.collectionGate.update({timestamp:meta.start,valid,features});
+          record.activeWindow.wholeWindowStability=whole;
+          // Each complete collection must also be stable over its entire duration.
+          if(whole.durationMs>=this.config.collectMs&&!whole.stable)this.interruptCalibrationWindow('whole_window_unstable',meta.start);
+          else if(whole.stable) {
+            row.target_stage=attempt.samplingStage;row.calibration_window_id=attempt.windowId;
+            // Complete on the first qualifying frame, before the rolling gate can
+            // discard any early collection samples while waiting for a UI timer.
+            this.checkCalibrationTarget();return;
+          }
+        }
+      }
+      if(record.samplingStage==='waiting'&&state.stable&&record.lastStability?.stable) {
+        record.samplingStage='pending_collect';
+        this.drawOnFrame(()=>this.drawTarget(this.target,0,'#218d78'),onset=>{
+          if(record!==this.targetRecord||record.samplingStage!=='pending_collect')return;
+          if(!record.lastStability?.stable||onset-record.lastSampleTimestamp>this.config.calibrationStability.maxGapMs){record.samplingStage='waiting';return;}
+          record.collectStart=onset;record.samplingStage='collect';
+          const samplingWindow={id:`${record.presentationId}-w${record.samplingWindows.length+1}`,start:onset,end:null,status:'collecting',sampleIds:[]};
+          record.samplingWindows.push(samplingWindow);record.activeWindow=samplingWindow;
+          this.collectionGate=window.CalibrationStability.createGate({...this.config.calibrationStability,windowMs:this.config.collectMs});
+          this.event('calibration_collection_start',{presentation_id:record.presentationId,window_id:samplingWindow.id,collect_start:onset});
+        });
+      } else if(record.samplingStage==='pending_collect'&&!state.stable)record.samplingStage='waiting';
+      row.target_stage=attempt.samplingStage;row.calibration_window_id=attempt.windowId;
+    }
+    interruptCalibrationWindow(reason,timestamp) {
+      const r=this.targetRecord,w=r.activeWindow;if(!w)return;
+      w.end=timestamp;w.status='interrupted';w.reason=reason;r.activeWindow=null;r.collectStart=Infinity;r.samplingStage='waiting';r.lastStability=null;
+      this.samplingGate.reset();if(this.collectionGate)this.collectionGate.reset();
+      this.event('calibration_collection_interrupted',{presentation_id:r.presentationId,window_id:w.id,reason,sample_count:w.sampleIds.length},timestamp);
     }
     startBlock(kind) {
       if(!this.runningCamera||!['ready','calibration_report','validation_report','failure'].includes(this.phase))return;
@@ -516,25 +640,27 @@
       const block=this.block,target=this.blockTargets[this.targetIndex];
       this.enter(block.kind,{block_id:block.id,target_id:target.targetId,round_index:target.roundIndex||null,
         presentation_id:target.presentationId});this.aois=[];this.target={...target};
-      this.targetRecord={...target,attempts:[],onset:null,collectStart:Infinity,collectEnd:null,status:'running'};
+      this.targetRecord={...target,attempts:[],onset:null,collectStart:Infinity,collectEnd:null,status:'running',
+        samplingStage:'settle',settleEnd:Infinity,deadline:Infinity,samplingWindows:[],activeWindow:null};
+      this.samplingGate=block.kind==='calibration'?window.CalibrationStability.createGate(this.config.calibrationStability):null;
+      this.collectionGate=null;
       block.targets.push(this.targetRecord);
       this.status.textContent=`${this.pilot?'预实验 · ':''}${block.kind==='calibration'?`校准 第${target.roundIndex}/2轮 · ${(this.targetIndex%9)+1}/9`:`独立验证 ${this.targetIndex+1}/9`} · 注视圆点`;
-      this.drawOnFrame(()=>{
-        this.clear();const x=target.targetX*this.width,y=target.targetY*this.height;
-        this.ctx.beginPath();this.ctx.arc(x,y,17,0,2*Math.PI);this.ctx.fillStyle='#ffffff';this.ctx.fill();
-        this.ctx.lineWidth=3;this.ctx.strokeStyle='#176b61';this.ctx.stroke();
-        this.ctx.beginPath();this.ctx.arc(x,y,4,0,2*Math.PI);this.ctx.fillStyle='#172d29';this.ctx.fill();
-      },onset=>{
-        this.targetRecord.onset=onset;this.targetRecord.collectStart=onset+this.config.settleMs;
+      this.drawOnFrame(()=>this.drawTarget(target),onset=>{
+        this.targetRecord.onset=onset;this.targetRecord.settleEnd=onset+this.config.settleMs;
+        this.targetRecord.collectStart=block.kind==='validation'?this.targetRecord.settleEnd:Infinity;
+        this.targetRecord.deadline=onset+(block.kind==='calibration'?this.config.calibrationPointTimeoutMs:this.config.pointTimeoutMs);
         const canvasRect=this.canvasRect();
         this.targetRecord.canvasRect=canvasRect;
         this.targetRecord.renderedTargetCss={x:canvasRect.left+target.targetX*canvasRect.width,y:canvasRect.top+target.targetY*canvasRect.height};
-        this.event('target_onset',{...target,block_id:block.id,collect_start:this.targetRecord.collectStart,
+        this.event('target_onset',{...target,block_id:block.id,collect_start:block.kind==='validation'?this.targetRecord.collectStart:null,
+          settle_end:this.targetRecord.settleEnd,deadline:this.targetRecord.deadline,
           canvas_rect:canvasRect,rendered_target_css:this.targetRecord.renderedTargetCss,onset_definition:this.config.onsetDefinition},onset);
-        this.later(this.config.settleMs+this.config.collectMs,()=>this.checkTarget());
+        this.later(block.kind==='calibration'?100:this.config.settleMs+this.config.collectMs,()=>this.checkTarget());
       });
     }
     checkTarget() {
+      if(this.block?.kind==='calibration'){this.checkCalibrationTarget();return;}
       const record=this.targetRecord,now=performance.now();
       const validCount=record.attempts.filter(a=>a.valid).length;
       if(validCount>=this.config.minValidFramesPerPoint) {
@@ -548,21 +674,56 @@
         this.enter('failure');this.showPanel('此点采集不足',[
           `${record.targetId} 在 ${(this.config.pointTimeoutMs/1000).toFixed(0)} 秒内只有 ${validCount} 个有效结果。请检查光照、距离、眼镜反光与是否完整露脸。`,
           '请保持手机位置稳定后重试。当前诊断数据已保留。'
-        ],[['重新完整校准',()=>this.startBlock('calibration')],['下载完整诊断备份',()=>this.download('backup'),true],['暂停',()=>this.pause('calibration_failed'),true]]);
+        ],[['重新完整校准',()=>this.prepareCalibration()],['下载完整诊断备份',()=>this.download('backup'),true],['暂停',()=>this.pause('calibration_failed'),true]]);
       } else {this.status.textContent='有效结果不足，继续注视圆点…';this.later(200,()=>this.checkTarget());}
+    }
+    checkCalibrationTarget() {
+      const r=this.targetRecord,now=performance.now();if(this.phase!=='calibration'||!r)return;
+      let w=r.activeWindow;
+      if(w&&now-(w.lastSampleTimestamp??w.start)>this.config.calibrationStability.maxGapMs) {
+        this.interruptCalibrationWindow('sample_gap',now);w=null;
+      }
+      if(w&&w.wholeWindowStability?.stable&&w.sampleIds.length>=this.config.minValidFramesPerPoint&&now<=r.deadline) {
+        w.end=now;w.status='complete';r.collectEnd=now;r.status='complete';r.acceptedWindowId=w.id;
+        const selected=new Set(w.sampleIds);
+        for(const attempt of r.attempts)attempt.fitEligible=attempt.valid&&selected.has(attempt.sampleId);
+        r.samplingSummary={durationMs:now-r.onset,attempts:r.attempts.length,fitEligible:r.attempts.filter(a=>a.fitEligible).length,
+          interruptedWindows:r.samplingWindows.filter(s=>s.status==='interrupted').length,stability:w.wholeWindowStability};
+        this.event('target_end',{target_id:r.targetId,round_index:r.roundIndex,presentation_id:r.presentationId,
+          attempts:r.attempts.length,valid_count:r.samplingSummary.fitEligible,sampling_summary:r.samplingSummary});
+        r.activeWindow=null;this.targetIndex++;this.nextTarget();return;
+      }
+      if(now>=r.deadline) {
+        if(w)this.interruptCalibrationWindow('point_deadline',now);
+        r.collectEnd=now;r.status='failed';this.block.status='failed';this.block.ended=now;this.block.failure='stable_collection_timeout';
+        this.event('calibration_point_failed',{target_id:r.targetId,presentation_id:r.presentationId,
+          attempts:r.attempts.length,windows:r.samplingWindows.length,last_stability:r.lastStability});
+        this.target=null;this.validationOK=false;this.enter('failure');this.clear();
+        this.showPanel('此点未获得连续稳定采样',[
+          `${r.targetId} 在 ${this.config.calibrationPointTimeoutMs/1000} 秒内未完成采样。请检查光照、眼镜反光和面部是否完整进入画面。`,
+          '等待、异常和重采记录均已保留。请保存备份后重新练习和校准。'
+        ],[['重新练习并完整校准',()=>this.prepareCalibration()],['下载诊断备份',()=>this.download('backup'),true],['暂停',()=>this.pause('calibration_failed'),true]]);return;
+      }
+      const progress=w?Math.min(1,(w.wholeWindowStability?.durationMs||0)/this.config.collectMs):0;
+      const color=w?'#218d78':'#176b61';this.drawTarget(this.target,progress,color);
+      this.status.textContent=`v${VERSION} · 校准 第${r.roundIndex}/2轮 · ${(this.targetIndex%9)+1}/9 · ${w?'保持注视，正在采样':'继续注视，等待稳定'}`;
+      this.later(Math.min(100,r.deadline-now),()=>this.checkTarget());
     }
     finishBlock() {
       const block=this.block;block.ended=performance.now();this.target=null;this.targetRecord=null;
       const all=block.targets.flatMap(t=>t.attempts);
       if(block.kind==='calibration') {
-        const fit=GazeCore.createRepeatedCalibration(all,{expectedTargets:CALIBRATION_TARGETS,
-          minSamplesPerPresentation:this.config.minValidFramesPerPoint});
+        block.samplingSummary={attempts:all.length,fitEligible:all.filter(a=>a.fitEligible).length,
+          interruptedWindows:block.targets.reduce((sum,t)=>sum+t.samplingWindows.filter(w=>w.status==='interrupted').length,0),
+          durationMs:block.ended-block.started,stabilityCriteria:this.config.calibrationStability};
+        const fit=GazeCore.createRepeatedCalibration(all.filter(a=>a.fitEligible),{expectedTargets:CALIBRATION_TARGETS,
+          minSamplesPerPresentation:this.config.minValidFramesPerPoint,aggregation:this.config.calibrationAggregation});
         block.fit=fit;block.status=fit.ok?'complete':'failed';
         const report=window.CalibrationReport.summarizeCalibration(fit);
         if(!fit.ok) {
           this.enter('failure');this.clear();this.status.textContent=`v${VERSION} · 校准暂未生成模型 · 请查看报告`;
           this.showPanel(report.headline,report.lines,
-            [['重新完整校准',()=>this.startBlock('calibration')],['下载诊断备份',()=>this.download('backup'),true],['暂停',()=>this.pause('fit_failed'),true]]);
+            [['重新完整校准',()=>this.prepareCalibration()],['下载诊断备份',()=>this.download('backup'),true],['暂停',()=>this.pause('fit_failed'),true]]);
           this.appendPointReport(report.points,'查看逐点校准诊断');return;
         }
         this.model=fit.model;this.modelId=block.id;this.modelHash=hashModel(fit.model);block.modelHash=this.modelHash;
@@ -571,8 +732,9 @@
           selection_rule:fit.diagnostics.selectionRule});
         this.enter('calibration_report');this.clear();this.aois=[];
         this.status.textContent=`v${VERSION} · 两轮校准已完成 · 尚未独立验证`;
-        this.showPanel(report.headline,report.lines,[['开始独立验证',()=>this.startBlock('validation')],
-          ['查看并保存诊断备份',()=>this.download('backup'),true],['重新完整校准',()=>this.startBlock('calibration'),true],
+        this.showPanel(report.headline,[...report.lines,
+          `采样共 ${(block.samplingSummary.durationMs/1000).toFixed(1)} 秒；拟合使用 ${block.samplingSummary.fitEligible}/${block.samplingSummary.attempts} 条采样尝试；中断重采 ${block.samplingSummary.interruptedWindows} 次。稳定不代表注视位置正确，请继续独立验证。`],[['开始独立验证',()=>this.startBlock('validation')],
+          ['查看并保存诊断备份',()=>this.download('backup'),true],['重新完整校准',()=>this.prepareCalibration(),true],
           ['暂停',()=>this.pause('calibration_report_pause'),true]]);
         this.appendPointReport(report.points,'查看9个位置的拟合、波动与两轮差异');
       } else {
@@ -585,7 +747,7 @@
         this.status.textContent=`v${VERSION} · 独立验证${evaluation.passed?'通过':'未通过'} · 请查看报告`;
         this.showPanel(report.headline,report.lines,
           [...(evaluation.passed?[['继续任务',()=>this.continueAfterValidation()]]:[]),
-            ['重新完整校准',()=>this.startBlock('calibration'),true],
+            ['重新完整校准',()=>this.prepareCalibration(),true],
             ['下载诊断备份',()=>this.download('backup'),true],['暂停',()=>this.pause('validation_pause'),true]]);
         this.appendPointReport(report.points,`查看各点结果与原因（${report.points.filter(p=>!p.passed).length} 个点未通过）`);
       }
@@ -711,6 +873,10 @@
       }
       if(this.rating){this.event('rating_aborted',{rating_id:this.rating.id,image_id:this.rating.image,reason},now);this.rating=null;}
       if(this.block&&this.block.status==='running'){this.block.status='aborted';this.block.ended=now;this.block.failure=reason;}
+      if(this.targetRecord?.activeWindow)this.interruptCalibrationWindow(reason,now);
+      if(this.targetRecord?.status==='running'){this.targetRecord.status='aborted';this.targetRecord.collectEnd=now;}
+      if(this.preparation){this.event('preparation_aborted',{reason,last_state:this.preparation.state});this.preparation=null;}
+      if(this.samplingGate)this.samplingGate.reset();if(this.collectionGate)this.collectionGate.reset();
       this.target=null;this.targetRecord=null;this.block=null;this.aois=[];this.validationOK=false;
       this.event('pause',{reason});this.enter('paused');this.stopCamera();this.clear();
       this.showPanel('实验已暂停',[`原因：${({page_hidden:'页面曾离开前台',resize:'窗口尺寸改变',visual_viewport_resize:'可视区域改变',user_pause:'主动暂停'})[reason]||reason}。`,
@@ -761,6 +927,8 @@
     }
     session() {
       return {schemaVersion:SCHEMA,runId:this.runId,appVersion:VERSION,coreVersion:window.GazeCore?GazeCore.version:null,
+        trackingEngine:this.engine,trackingIdentity:this.trackingIdentity||null,
+        diagnosticsUse:'Face blendshapes and face transformation matrices are logged only; they do not alter gaze predictions or validity.',
         participantId:this.participantId,pilot:this.pilot,layout:this.layout,layoutVersion:this.config.layoutVersion,ratingCount:this.ratingCount,trialCount:this.trialCount,
         startedAtUTC:new Date(this.startedAt).toISOString(),performanceTimeOrigin:performance.timeOrigin,
         exportedAtUTC:new Date().toISOString(),phase:this.phase,config:this.config,
