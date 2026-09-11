@@ -5,7 +5,7 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const version = '2.0.2';
+  const version = '2.1.0';
   const qualityThresholds = Object.freeze({ minEyeWidthPixels: 4, minEAR: 0.09, maxEAR: 0.65,
     minIrisRatio: 0.02, maxIrisRatio: 0.8, maxAbsLocalX: 0.8, maxAbsLocalY: 0.6 });
   const finite = value => typeof value === 'number' && Number.isFinite(value);
@@ -164,6 +164,7 @@
     const fail = reason => ({ ok: false, reason, model: null, diagnostics });
     if (!Array.isArray(samples) || !samples.length) return fail('no_calibration_samples');
     if (Object.keys(calibrationDefaults).some(key => !finite(settings[key]) || settings[key] < 0) || settings.ridgeLambda <= 0 || settings.minTargetCount < 3 || settings.minSamplesPerTarget < 2) return fail('invalid_calibration_options');
+    if (settings.sampleWeightGroup !== undefined && (typeof settings.sampleWeightGroup !== 'string' || !settings.sampleWeightGroup)) return fail('invalid_sample_weight_group');
     const groups = new Map();
     let featureCount = null;
     for (const sample of samples) {
@@ -181,10 +182,22 @@
     diagnostics.targetSummaries = targets.map(t => ({ targetId: t.targetId, targetX: t.targetX, targetY: t.targetY, sampleCount: t.samples.length }));
     if (targets.length < settings.minTargetCount) return fail('insufficient_calibration_targets');
     if (targets.some(t => t.samples.length < settings.minSamplesPerTarget)) return fail('insufficient_samples_per_target');
+    if (settings.sampleWeightGroup) for (const target of targets) {
+      const segments = new Map();
+      for (const sample of target.samples) {
+        const key = targetKey(sample[settings.sampleWeightGroup]);
+        if (key === null) return fail('missing_sample_weight_group');
+        if (!segments.has(key)) segments.set(key, []);
+        segments.get(key).push(sample);
+      }
+      target.weightGroups = Array.from(segments.values());
+    }
+    const targetAverage = (target, value) => target.weightGroups
+      ? mean(target.weightGroups.map(segment => mean(segment.map(value)))) : mean(target.samples.map(value));
     if (span(targets.map(t => t.targetX)) < settings.minTargetSpanX || span(targets.map(t => t.targetY)) < settings.minTargetSpanY) return fail('insufficient_target_span');
     diagnostics.targetLayout = layoutDiagnostics(targets);
     if (diagnostics.targetLayout.uniquePositionCount < settings.minTargetCount || !finite(diagnostics.targetLayout.correlation) || Math.abs(diagnostics.targetLayout.correlation) > settings.maxTargetCorrelation) return fail('degenerate_target_layout');
-    const centers = targets.map(t => Array.from({ length: featureCount }, (_, i) => mean(t.samples.map(s => s.features[i]))));
+    const centers = targets.map(t => Array.from({ length: featureCount }, (_, i) => targetAverage(t, s => s.features[i])));
     const rawX = centers.map(f => featureCount === 4 ? (f[0] + f[2]) / 2 : f[0]);
     const rawY = centers.map(f => featureCount === 4 ? (f[1] + f[3]) / 2 : f[1]);
     diagnostics.rawSpanX = span(rawX); diagnostics.rawSpanY = span(rawY);
@@ -195,19 +208,22 @@
     diagnostics.rawCorrelation = covariance / Math.sqrt(varianceX * varianceY);
     if (!finite(diagnostics.rawCorrelation) || Math.abs(diagnostics.rawCorrelation) > settings.maxRawCorrelation) return fail('degenerate_two_dimensional_features');
     const featureMean = Array.from({ length: featureCount }, (_, i) => mean(centers.map(f => f[i])));
-    const featureScale = featureMean.map((mu, i) => Math.sqrt(mean(targets.map(t => mean(t.samples.map(s => (s.features[i] - mu) ** 2))))));
+    const featureScale = featureMean.map((mu, i) => Math.sqrt(mean(targets.map(t => targetAverage(t, s => (s.features[i] - mu) ** 2)))));
     const activeFeatures = featureScale.map((scale, index) => scale >= settings.minFeatureStd ? index : -1).filter(i => i >= 0);
     if (activeFeatures.length < 2) return fail('degenerate_feature_variance');
     const dimension = activeFeatures.length + 1;
     const matrix = Array.from({ length: dimension }, () => Array(dimension).fill(0));
     const targetX = Array(dimension).fill(0), targetY = Array(dimension).fill(0);
     for (const group of targets) {
-      const weight = 1 / (targets.length * group.samples.length);
-      for (const sample of group.samples) {
-        const row = [1].concat(activeFeatures.map(i => (sample.features[i] - featureMean[i]) / featureScale[i]));
-        for (let i = 0; i < dimension; i++) {
-          targetX[i] += weight * row[i] * group.targetX; targetY[i] += weight * row[i] * group.targetY;
-          for (let j = 0; j < dimension; j++) matrix[i][j] += weight * row[i] * row[j];
+      const segments = group.weightGroups || [group.samples];
+      for (const segment of segments) {
+        const weight = 1 / (targets.length * segments.length * segment.length);
+        for (const sample of segment) {
+          const row = [1].concat(activeFeatures.map(i => (sample.features[i] - featureMean[i]) / featureScale[i]));
+          for (let i = 0; i < dimension; i++) {
+            targetX[i] += weight * row[i] * group.targetX; targetY[i] += weight * row[i] * group.targetY;
+            for (let j = 0; j < dimension; j++) matrix[i][j] += weight * row[i] * row[j];
+          }
         }
       }
     }
@@ -219,10 +235,10 @@
     const model = { version, kind: 'standardized_affine_ridge', featureCount, activeFeatures, featureMean, featureScale,
       coefficientsX: x.coefficients, coefficientsY: y.coefficients, ridgeLambda: settings.ridgeLambda,
       calibrationTargetCount: targets.length, unclipped: true };
-    const trainingErrors = targets.map(group => mean(group.samples.map(sample => {
+    const trainingErrors = targets.map(group => targetAverage(group, sample => {
       const point = predict(model, sample.features);
       return Math.hypot(point.x - group.targetX, point.y - group.targetY);
-    })));
+    }));
     diagnostics.trainingMeanErrorNorm = mean(trainingErrors);
     diagnostics.warnings.push('Training error must not be reported as measured gaze accuracy.');
     return { ok: true, reason: null, model, diagnostics };
@@ -231,6 +247,12 @@
   function predict(model, features) {
     const fail = reason => ({ x: null, y: null, ok: false, reason });
     if (!model || model.kind !== 'standardized_affine_ridge' || !Number.isInteger(model.featureCount) || model.featureCount < 2 || model.featureCount > 4 || !Array.isArray(model.activeFeatures) || model.activeFeatures.length < 2 || new Set(model.activeFeatures).size !== model.activeFeatures.length || !Array.isArray(model.featureMean) || !Array.isArray(model.featureScale) || !Array.isArray(model.coefficientsX) || !Array.isArray(model.coefficientsY)) return fail('invalid_model');
+    if (model.featureTransform !== undefined) {
+      const transform = model.featureTransform;
+      if (!transform || transform.kind !== 'binocular_mean' || transform.inputFeatureCount !== 4 || transform.outputFeatureCount !== 2 || model.featureCount !== 2 || model.inputFeatureCount !== 4) return fail('invalid_feature_transform');
+      if (!Array.isArray(features) || features.length !== 4 || !features.every(finite)) return fail('invalid_features');
+      features = [(features[0] + features[2]) / 2, (features[1] + features[3]) / 2];
+    }
     if (!Array.isArray(features) || features.length !== model.featureCount || !features.every(finite)) return fail('invalid_features');
     if (model.featureMean.length !== model.featureCount || model.featureScale.length !== model.featureCount || !model.featureMean.every(finite) || model.activeFeatures.some(i => !Number.isInteger(i) || i < 0 || i >= model.featureCount || !finite(model.featureScale[i]) || model.featureScale[i] <= 0)) return fail('invalid_model');
     const row = [1].concat(model.activeFeatures.map(i => (features[i] - model.featureMean[i]) / model.featureScale[i]));
@@ -270,6 +292,182 @@
     const varianceY = mean(samples.map(s => (s.y - centerY) ** 2));
     return { sdX: Math.sqrt(varianceX), sdY: Math.sqrt(varianceY), radialRmsAroundMean: Math.sqrt(varianceX + varianceY) };
   }
+
+  // Model comparison uses calibration rounds only. Neither this selection score
+  // nor the final training residuals certify independent gaze accuracy.
+  function createRepeatedCalibration(samples, options = {}) {
+    const validOptions = options && typeof options === 'object' && !Array.isArray(options);
+    if (!validOptions) options = {};
+    const candidates = [
+      { id: 'four_eye_affine', label: '双眼四特征仿射', ok: false, reason: 'not_evaluated', score: null, folds: [], perTarget: [] },
+      { id: 'binocular_mean_affine', label: '双眼均值仿射', ok: false, reason: 'not_evaluated', score: null, folds: [], perTarget: [] }
+    ];
+    const diagnostics = {
+      protocol: 'two_round_cross_validation_v1', expectedRoundCount: 2, expectedTargetCount: 9,
+      candidates, selectedCandidateId: null,
+      selectionRule: '仅使用校准数据：第1轮训练、第2轮测试，再反向检验；各目标等权、两轮等权。平均二维误差较小者入选，差值不超过1e-12时优先双眼四特征。固定岭系数0.01。',
+      weighting: 'Each target receives equal weight; each presentation within a target receives equal weight; each valid frame within its presentation receives equal weight.',
+      note: 'Training residuals and cross-round calibration errors are not independent accuracy validation. A new held-out validation is required after model selection.',
+      minSamplesPerPresentation: options.minSamplesPerPresentation === undefined ? 12 : options.minSamplesPerPresentation,
+      attemptCount: Array.isArray(samples) ? samples.length : 0, validCount: 0,
+      integrityFailures: [], roundSummaries: [1, 2].map(roundIndex => ({ roundIndex, attemptCount: 0, validCount: 0, presentationCount: 0, targetCount: 0, invalidReasons: {}, presentations: [] })),
+      perTargetFit: [], trainingMetrics: null
+    };
+    const fail = reason => {
+      for (const candidate of candidates) if (candidate.reason === 'not_evaluated') candidate.reason = reason;
+      return { ok: false, reason, model: null, diagnostics };
+    };
+    if (!validOptions) return fail('invalid_repeated_calibration_options');
+    if (!Array.isArray(samples) || !samples.length) return fail('no_calibration_samples');
+    if (!Number.isInteger(diagnostics.minSamplesPerPresentation) || diagnostics.minSamplesPerPresentation < 12) return fail('invalid_repeated_calibration_options');
+    const expected = new Map();
+    const suppliedTargets = options.expectedTargets === undefined
+      ? samples.filter(targetValid).filter((sample, index, all) => all.findIndex(other => targetKey(other.targetId) === targetKey(sample.targetId)) === index)
+      : options.expectedTargets;
+    if (!Array.isArray(suppliedTargets)) return fail('invalid_expected_calibration_targets');
+    for (const target of suppliedTargets) {
+      if (!targetValid(target) || expected.has(targetKey(target.targetId))) return fail('invalid_expected_calibration_targets');
+      expected.set(targetKey(target.targetId), { targetId: targetKey(target.targetId), targetX: target.targetX, targetY: target.targetY });
+    }
+    if (expected.size !== 9) return fail('expected_nine_calibration_targets');
+    const presentations = new Map(), presentationIds = new Map();
+    const addIntegrity = reason => { if (!diagnostics.integrityFailures.includes(reason)) diagnostics.integrityFailures.push(reason); };
+    for (const sample of samples) {
+      const roundIndex = sample && sample.roundIndex;
+      const round = diagnostics.roundSummaries.find(item => item.roundIndex === roundIndex);
+      const validFeatures = sample && sample.valid === true && Array.isArray(sample.features) && sample.features.length === 4 && sample.features.every(finite);
+      if (round) {
+        round.attemptCount++;
+        if (validFeatures) { round.validCount++; diagnostics.validCount++; }
+        else {
+          const reason = sample && sample.valid !== true && typeof sample.reason === 'string' && sample.reason ? sample.reason : 'invalid_features';
+          round.invalidReasons[reason] = (round.invalidReasons[reason] || 0) + 1;
+        }
+      }
+      if (!round) { addIntegrity('unexpected_calibration_round'); continue; }
+      if (!targetValid(sample) || !expected.has(targetKey(sample.targetId))) { addIntegrity('unexpected_calibration_target'); continue; }
+      const target = expected.get(targetKey(sample.targetId));
+      if (!sameTarget(sample, target)) { addIntegrity('inconsistent_calibration_target'); continue; }
+      const presentationId = targetKey(sample.presentationId);
+      if (presentationId === null) { addIntegrity('missing_presentation_id'); continue; }
+      const key = JSON.stringify([roundIndex, target.targetId]);
+      if (presentationIds.has(presentationId) && presentationIds.get(presentationId) !== key) { addIntegrity('presentation_id_reused'); continue; }
+      presentationIds.set(presentationId, key);
+      if (!presentations.has(key)) presentations.set(key, { ...target, roundIndex, presentationId, attempts: [], samples: [] });
+      const presentation = presentations.get(key);
+      if (presentation.presentationId !== presentationId) { addIntegrity('duplicate_target_presentation'); continue; }
+      presentation.attempts.push(sample);
+      if (validFeatures) presentation.samples.push(sample);
+    }
+    for (const round of diagnostics.roundSummaries) {
+      const actual = Array.from(presentations.values()).filter(presentation => presentation.roundIndex === round.roundIndex);
+      round.presentationCount = actual.length; round.targetCount = new Set(actual.map(presentation => presentation.targetId)).size;
+      round.presentations = actual.map(presentation => ({ targetId: presentation.targetId, presentationId: presentation.presentationId,
+        attemptCount: presentation.attempts.length, validCount: presentation.samples.length }));
+      for (const target of expected.values()) {
+        const presentation = presentations.get(JSON.stringify([round.roundIndex, target.targetId]));
+        if (!presentation) addIntegrity('incomplete_calibration_round');
+        else if (presentation.samples.length < diagnostics.minSamplesPerPresentation) addIntegrity('insufficient_samples_per_presentation');
+      }
+    }
+    if (diagnostics.integrityFailures.length) return fail(diagnostics.integrityFailures[0]);
+    const segments = Array.from(presentations.values());
+    const transformed = (sample, candidate) => ({ ...sample, features: candidate.id === 'binocular_mean_affine'
+      ? [(sample.features[0] + sample.features[2]) / 2, (sample.features[1] + sample.features[3]) / 2] : sample.features.slice() });
+    function fitSegments(selected, candidate) {
+      const result = createCalibration(selected.flatMap(segment => segment.samples.map(sample => transformed(sample, candidate))), {
+        expectedTargetIds: Array.from(expected.keys()), minTargetCount: 9, minSamplesPerTarget: 12,
+        ridgeLambda: 0.01, sampleWeightGroup: 'presentationId'
+      });
+      if (result.ok) {
+        result.model.candidateId = candidate.id; result.model.inputFeatureCount = 4;
+        if (candidate.id === 'binocular_mean_affine') result.model.featureTransform = { kind: 'binocular_mean', inputFeatureCount: 4, outputFeatureCount: 2 };
+      }
+      return result;
+    }
+    function predictedSegment(segment, model) {
+      return segment.samples.map(sample => {
+        const point = predict(model, sample.features);
+        return { targetX: segment.targetX, targetY: segment.targetY, x: point.x, y: point.y };
+      });
+    }
+    function aggregate(segmentSamples) {
+      return errorSummary(segmentSamples.flat(), segmentSamples.flatMap(group => group.map(() => 1 / group.length)));
+    }
+    const candidateModels = new Map();
+    for (const candidate of candidates) {
+      const foldPoints = [];
+      for (const trainRoundIndex of [1, 2]) {
+        const testRoundIndex = 3 - trainRoundIndex;
+        const result = fitSegments(segments.filter(segment => segment.roundIndex === trainRoundIndex), candidate);
+        const fold = { trainRoundIndex, testRoundIndex, ok: result.ok, reason: result.reason, score: null, metrics: null, perTarget: [], fitDiagnostics: result.diagnostics };
+        if (result.ok) {
+          const testSegments = segments.filter(segment => segment.roundIndex === testRoundIndex);
+          const points = testSegments.map(segment => ({ segment, samples: predictedSegment(segment, result.model) }));
+          if (points.some(point => point.samples.some(sample => !finite(sample.x) || !finite(sample.y)))) {
+            fold.ok = false; fold.reason = 'nonfinite_cross_round_prediction';
+          } else {
+            fold.metrics = aggregate(points.map(point => point.samples)); fold.score = fold.metrics.meanErrorNorm;
+            fold.perTarget = points.map(point => ({ targetId: point.segment.targetId, targetX: point.segment.targetX, targetY: point.segment.targetY,
+              validCount: point.samples.length, metrics: errorSummary(point.samples) }));
+            foldPoints.push({ testRoundIndex, points });
+          }
+        }
+        candidate.folds.push(fold);
+      }
+      candidate.ok = candidate.folds.every(fold => fold.ok);
+      candidate.reason = candidate.ok ? null : 'cross_round_fit_failed';
+      if (candidate.ok) {
+        candidate.score = mean(candidate.folds.map(fold => fold.score));
+        candidate.perTarget = Array.from(expected.values()).map(target => {
+          const paired = foldPoints.map(fold => ({ testRoundIndex: fold.testRoundIndex, ...fold.points.find(point => point.segment.targetId === target.targetId) }));
+          return { ...target, metrics: aggregate(paired.map(point => point.samples)),
+            folds: paired.map(point => ({ testRoundIndex: point.testRoundIndex, metrics: errorSummary(point.samples) })) };
+        });
+        const finalFit = fitSegments(segments, candidate);
+        candidate.finalFit = { ok: finalFit.ok, reason: finalFit.reason, diagnostics: finalFit.diagnostics };
+        if (!finalFit.ok) { candidate.ok = false; candidate.reason = 'final_fit_failed:' + finalFit.reason; }
+        else if (segments.some(segment => predictedSegment(segment, finalFit.model).some(point => !finite(point.x) || !finite(point.y)))) {
+          candidate.ok = false; candidate.reason = 'nonfinite_final_prediction';
+          candidate.finalFit.ok = false; candidate.finalFit.reason = candidate.reason;
+        } else candidateModels.set(candidate.id, finalFit.model);
+      }
+    }
+    // Eligibility is candidate-specific; an eligible model completes both folds
+    // and the final fit. A failed candidate never becomes a single-round fallback.
+    const eligible = candidates.filter(candidate => candidate.ok);
+    if (!eligible.length) return fail('no_eligible_calibration_candidate');
+    const selected = eligible.reduce((best, candidate) => candidate.score < best.score - 1e-12 ? candidate : best);
+    diagnostics.selectedCandidateId = selected.id;
+    const model = candidateModels.get(selected.id);
+    diagnostics.finalFitDiagnostics = selected.finalFit.diagnostics;
+    model.calibrationProtocol = diagnostics.protocol;
+    model.calibrationRoundCount = 2;
+    const predictions = segments.map(segment => ({ segment, samples: predictedSegment(segment, model) }));
+    if (predictions.some(point => point.samples.some(sample => !finite(sample.x) || !finite(sample.y)))) return fail('nonfinite_final_prediction');
+    diagnostics.trainingMetrics = aggregate(predictions.map(point => point.samples));
+    diagnostics.perTargetFit = Array.from(expected.values()).map(target => {
+      const paired = predictions.filter(point => point.segment.targetId === target.targetId).sort((a, b) => a.segment.roundIndex - b.segment.roundIndex);
+      const roundMeans = paired.map(point => ({ roundIndex: point.segment.roundIndex, presentationId: point.segment.presentationId,
+        attemptCount: point.segment.attempts.length, validCount: point.samples.length,
+        x: mean(point.samples.map(sample => sample.x)), y: mean(point.samples.map(sample => sample.y)),
+        features: [0, 1, 2, 3].map(index => mean(point.segment.samples.map(sample => sample.features[index]))),
+        featureSD: [0, 1, 2, 3].map(index => {
+          const values = point.segment.samples.map(sample => sample.features[index]), average = mean(values);
+          return Math.sqrt(mean(values.map(value => (value - average) ** 2)));
+        }), metrics: errorSummary(point.samples), ...spreadSummary(point.samples) }));
+      const centerX = mean(roundMeans.map(round => round.x)), centerY = mean(roundMeans.map(round => round.y));
+      const varianceX = mean(paired.map(point => mean(point.samples.map(sample => (sample.x - centerX) ** 2))));
+      const varianceY = mean(paired.map(point => mean(point.samples.map(sample => (sample.y - centerY) ** 2))));
+      return { ...target, attemptCount: paired.reduce((sum, point) => sum + point.segment.attempts.length, 0),
+        validCount: paired.reduce((sum, point) => sum + point.samples.length, 0), metrics: aggregate(paired.map(point => point.samples)),
+        sdX: Math.sqrt(varianceX), sdY: Math.sqrt(varianceY), radialRmsAroundMean: Math.sqrt(varianceX + varianceY), roundMeans,
+        roundMeanDelta: { x: roundMeans[1].x - roundMeans[0].x, y: roundMeans[1].y - roundMeans[0].y,
+          features: roundMeans[0].features.map((value, index) => roundMeans[1].features[index] - value) } };
+    });
+    return { ok: true, reason: null, model, diagnostics };
+  }
+
   function evaluateValidation(samples, options = {}) {
     const settings = Object.assign({}, validationDefaults, options);
     const failures = [], groups = new Map(), invalidReasons = {};
@@ -357,5 +555,5 @@
       attemptCount: samples.length, validCount: validSamples.length, unassignedAttempts, diagnostics }, metrics, spread);
   }
 
-  return { version, qualityThresholds, extractFeatures, createTemporalQualityGate, createCalibration, predict, evaluateValidation };
+  return { version, qualityThresholds, extractFeatures, createTemporalQualityGate, createCalibration, createRepeatedCalibration, predict, evaluateValidation };
 }));

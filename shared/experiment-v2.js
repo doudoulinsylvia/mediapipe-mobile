@@ -8,7 +8,7 @@
   });
 })(typeof window === 'undefined' ? null : window, function () {
   'use strict';
-  const VERSION = '2.0.2';
+  const VERSION = '2.1.0';
   const SCHEMA = 2;
   const CALIBRATION_TARGETS = [0.08, 0.5, 0.92].flatMap((y, row) =>
     [0.08, 0.5, 0.92].map((x, col) => ({ targetId: `c${row * 3 + col + 1}`, targetX: x, targetY: y })));
@@ -17,6 +17,7 @@
     .map(([x,y],i) => ({ targetId: `v${i+1}`, targetX:x, targetY:y }));
   const CONFIG = Object.freeze({
     schemaVersion: SCHEMA, layoutVersion: 'pixel-aligned-square-aoi-v2.0.2', settleMs: 600, collectMs: 1400, pointTimeoutMs: 6000,
+    calibrationRounds:2, calibrationProtocol:'two_round_cross_validation_v1',
     minValidFramesPerPoint: 12, validationEveryTrials: 50, fixationMinMs: 800, fixationMaxMs: 1000,
     maxDwellGapMs: 100, smoothTauMs: 65, smoothResetGapMs: 150,
     callbackGapWarningMs: 1000, callbackGapPauseMs: 5000, cameraStartupTimeoutMs: 20000,
@@ -38,6 +39,7 @@
   const GAZE_HEADERS = [
     'schema_version','run_id','sample_id','result_timestamp','inference_start_timestamp','inference_end_timestamp',
     'phase','phase_id','trial_id','calibration_id','target_id','target_x','target_y','target_stage',
+    'calibration_round','target_presentation_id','inference_calibration_round','inference_target_presentation_id',
     'inference_phase_id','inference_trial_id','phase_match','video_current_time','media_time','presented_frames',
     'video_width','video_height','screen_width','screen_height','device_pixel_ratio','viewport_id',
     'face_detected','eye_open','quality_valid','temporal_quality_valid','temporal_quality_reason',
@@ -69,6 +71,13 @@
     const a = items.slice();
     for (let i=a.length-1;i>0;i--) { const j=Math.floor(random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
     return a;
+  }
+  function calibrationPlan(blockId, random = Math.random) {
+    const first=shuffled(CALIBRATION_TARGETS,random),second=shuffled(CALIBRATION_TARGETS,random);
+    // Avoid presenting an identical order twice, including deterministic test RNGs.
+    if(first.every((target,i)=>target.targetId===second[i].targetId))second.push(second.shift());
+    return [first,second].flatMap((targets,index)=>targets.map(target=>({...target,roundIndex:index+1,
+      presentationId:`${blockId}-r${index+1}-${target.targetId}`})));
   }
   function generateCombinations(ratings, count, random = Math.random) {
     const groups = new Map();
@@ -231,7 +240,7 @@
       this.showPanel(this.pilot?'预实验模式':'手机食物选择实验',[
         `本次 ${this.ratingCount} 张图片评分、${this.trialCount} 次${this.layout==='vertical'?'上下':'左右'}选择。请固定手机，保持光照和观看距离稳定。`,
         '需要前置摄像头。图像只在本设备处理，不保存照片或视频，不自动上传数据。请在 Safari / Chrome 的 HTTPS 页面打开。',
-        '校准与独立二维验证约各需30秒。验证不过关时不能进入任务；这些门槛是工程初始标准，不代表已经达到科学实验精度。',
+        '两轮九点校准约需40–60秒，随后查看逐点报告，再做约20–30秒的独立验证。验证不过关时不能进入任务；通过也不代表已经达到科学实验精度。',
         '结束后请下载完整备份。关闭或刷新页面会丢失尚未下载的数据。'
       ],[['开启摄像头并准备',()=>this.start()]]);
       const label=document.createElement('label');label.textContent='参与者编号（可选，不填写姓名）';
@@ -248,7 +257,7 @@
       try {
         if(!window.isSecureContext)throw new Error('需要 HTTPS 或 localhost 安全页面');
         if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('此浏览器不支持摄像头访问');
-        if(!window.FaceMesh||!window.GazeCore||!this.temporalQuality||!window.ValidationReport)throw new Error('实验脚本未完整载入。请保存备份后用新版链接重新打开。');
+        if(!window.FaceMesh||!window.GazeCore||!GazeCore.createRepeatedCalibration||!this.temporalQuality||!window.ValidationReport||!window.CalibrationReport)throw new Error('实验脚本未完整载入。请保存备份后用新版链接重新打开。');
         if(!this.ratingIds.length)this.ratingIds=shuffled(Array.from({length:200},(_,i)=>i+1)).slice(0,this.ratingCount);
         const stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:'user',width:{ideal:640},height:{ideal:480},frameRate:{ideal:30,max:60}}});
         if(token!==this.token){stream.getTracks().forEach(t=>t.stop());return;}
@@ -426,19 +435,24 @@
       const temporal=currentCamera&&this.temporalQuality?this.temporalQuality.update(q,meta.start):
         {valid:false,reason:'stale_camera',recovering:false,stableFrames:0,msSinceInvalid:null};
       const phaseMatch=meta.phaseId===this.phaseId&&meta.viewportId===this.viewportId;
+      const target=this.target;
+      const targetMatch=!target||Boolean(meta.target&&meta.target.targetId===target.targetId&&
+        meta.target.presentationId===target.presentationId&&meta.target.roundIndex===target.roundIndex);
       const predicted=this.model&&q.valid?GazeCore.predict(this.model,f):{x:null,y:null,ok:false,reason:'uncalibrated'};
       const preStimulus=this.phase==='choice'&&this.trial&&(this.trial.onset===null||meta.onset==null||meta.start<this.trial.onset);
-      const valid=Boolean(q.valid&&temporal.valid&&predicted.ok&&phaseMatch&&!preStimulus);
-      const reason=!phaseMatch?'stale_phase':preStimulus?'pre_stimulus':!q.valid?(q.reason||'invalid_features'):
+      const valid=Boolean(q.valid&&temporal.valid&&predicted.ok&&phaseMatch&&targetMatch&&!preStimulus);
+      const reason=!phaseMatch?'stale_phase':!targetMatch?'stale_target_presentation':preStimulus?'pre_stimulus':!q.valid?(q.reason||'invalid_features'):
         !temporal.valid?temporal.reason:!predicted.ok?(predicted.reason||'prediction_invalid'):'ok';
       if(valid)this.smoothed=smooth(this.smoothed,{x:predicted.x,y:predicted.y},now,this.config);else this.smoothed=null;
       const raw=classify(predicted.x,predicted.y,valid,this.aois,this.width,this.height);
       const sm=classify(this.smoothed&&this.smoothed.x,this.smoothed&&this.smoothed.y,valid,this.aois,this.width,this.height);
-      const target=this.target;
       const row={schema_version:SCHEMA,run_id:this.runId,sample_id:++this.sampleId,result_timestamp:now,
         inference_start_timestamp:meta.start,inference_end_timestamp:now,phase:this.phase,phase_id:this.phaseId,
         trial_id:this.trial?this.trial.id:null,calibration_id:this.block?this.block.id:null,
         target_id:target?target.targetId:null,target_x:target?target.targetX:null,target_y:target?target.targetY:null,
+        calibration_round:target?target.roundIndex||null:null,target_presentation_id:target?target.presentationId||null:null,
+        inference_calibration_round:meta.target?meta.target.roundIndex||null:null,
+        inference_target_presentation_id:meta.target?meta.target.presentationId||null:null,
         target_stage:target?(now<this.targetRecord.collectStart?'settle':'collect'):null,
         inference_phase_id:meta.phaseId,inference_trial_id:meta.trialId,phase_match:phaseMatch,
         video_current_time:meta.videoTime,media_time:meta.mediaTime,presented_frames:meta.presentedFrames,
@@ -467,8 +481,10 @@
         this.status.textContent=`${this.pilot?'预实验 · ':''}${q.valid?(temporal.valid?'已检测到脸与睁眼，请保持位置稳定':'正在等待眨眼或追踪中断后恢复稳定'):q.faceDetected?'请睁眼并调整距离或光照':'请让整张脸进入前置摄像头'}`;
       }
       if(target&&this.targetRecord&&phaseMatch&&meta.start>=this.targetRecord.collectStart&&
-          meta.target&&meta.target.targetId===target.targetId) {
+          meta.target&&meta.target.targetId===target.targetId&&meta.target.presentationId===target.presentationId&&
+          meta.target.roundIndex===target.roundIndex) {
         this.targetRecord.attempts.push({sampleId:row.sample_id,targetId:target.targetId,targetX:target.targetX,targetY:target.targetY,
+          roundIndex:target.roundIndex||null,presentationId:target.presentationId,
           timestamp:now,features:f.slice(),valid:this.block.kind==='calibration'?Boolean(q.valid&&temporal.valid):valid,
           reason:this.block.kind==='calibration'?(!q.valid?q.reason:!temporal.valid?temporal.reason:null):reason,x:predicted.x,y:predicted.y});
       }
@@ -476,28 +492,33 @@
     ready(title) {
       this.enter('ready');this.target=null;this.block=null;this.aois=[];this.clear();
       this.status.textContent=this.pilot?'预实验模式 · 请保持手机与头部稳定':'请保持手机与头部稳定';
-      this.showPanel(title,['请注视随后出现的圆点，不要点击圆点。每个点会自动采集多个摄像头结果。眨眼可以自然进行；看不清或找不到脸时会提示重试。',
+      this.showPanel(title,['请注视随后出现的圆点，不要点击圆点。校准分两轮，同样九个位置会以不同顺序各出现一次；每轮约20秒。眨眼可以自然进行。',
         '独立验证检查 X、Y 和二维误差及覆盖率。初始门槛：两轴平均绝对误差各≤屏幕对应边长10%，二维平均归一化误差≤0.12，覆盖率≥80%；还检查P95与每个点。'],
-        [[this.model?'开始独立验证':'开始九点校准',()=>this.startBlock(this.model?'validation':'calibration')],
+        [[this.model?'开始独立验证':'开始两轮九点校准',()=>this.startBlock(this.model?'validation':'calibration')],
          ...(this.model?[['重新完整校准',()=>this.startBlock('calibration'),true]]:[]),['暂停',()=>this.pause('user_pause'),true]]);
     }
     startBlock(kind) {
-      if(!this.runningCamera||!['ready','validation_report','failure'].includes(this.phase))return;
+      if(!this.runningCamera||!['ready','calibration_report','validation_report','failure'].includes(this.phase))return;
+      if(!['calibration','validation'].includes(kind)||kind==='validation'&&!this.model)return;
       this.validationOK=false;this.validationId=null;
       if(kind==='calibration') {this.model=null;this.modelId=null;this.modelHash=null;}
       this.block={id:kind==='calibration'?`calibration-${++this.calibrationSequence}`:`validation-${++this.validationSequence}`,
         kind,started:performance.now(),viewportId:this.viewportId,modelId:this.modelId,modelHash:this.modelHash,
         targets:[],status:'running',configuration:JSON.parse(JSON.stringify(this.config))};
-      this.calibrations.push(this.block);this.blockTargets=shuffled(kind==='calibration'?CALIBRATION_TARGETS:VALIDATION_TARGETS);
+      this.calibrations.push(this.block);
+      this.blockTargets=kind==='calibration'?calibrationPlan(this.block.id):shuffled(VALIDATION_TARGETS)
+        .map(target=>({...target,presentationId:`${this.block.id}-${target.targetId}`}));
+      this.block.presentationPlan=this.blockTargets.map(target=>({...target}));
       this.targetIndex=0;this.nextTarget();
     }
     nextTarget() {
       if(this.targetIndex>=this.blockTargets.length){this.finishBlock();return;}
       const block=this.block,target=this.blockTargets[this.targetIndex];
-      this.enter(block.kind,{block_id:block.id,target_id:target.targetId});this.aois=[];this.target={...target};
+      this.enter(block.kind,{block_id:block.id,target_id:target.targetId,round_index:target.roundIndex||null,
+        presentation_id:target.presentationId});this.aois=[];this.target={...target};
       this.targetRecord={...target,attempts:[],onset:null,collectStart:Infinity,collectEnd:null,status:'running'};
       block.targets.push(this.targetRecord);
-      this.status.textContent=`${this.pilot?'预实验 · ':''}${block.kind==='calibration'?'校准':'独立验证'} ${this.targetIndex+1}/${this.blockTargets.length} · 注视圆点`;
+      this.status.textContent=`${this.pilot?'预实验 · ':''}${block.kind==='calibration'?`校准 第${target.roundIndex}/2轮 · ${(this.targetIndex%9)+1}/9`:`独立验证 ${this.targetIndex+1}/9`} · 注视圆点`;
       this.drawOnFrame(()=>{
         this.clear();const x=target.targetX*this.width,y=target.targetY*this.height;
         this.ctx.beginPath();this.ctx.arc(x,y,17,0,2*Math.PI);this.ctx.fillStyle='#ffffff';this.ctx.fill();
@@ -517,7 +538,8 @@
       const record=this.targetRecord,now=performance.now();
       const validCount=record.attempts.filter(a=>a.valid).length;
       if(validCount>=this.config.minValidFramesPerPoint) {
-        record.collectEnd=now;record.status='complete';this.event('target_end',{target_id:record.targetId,attempts:record.attempts.length,valid_count:validCount});
+        record.collectEnd=now;record.status='complete';this.event('target_end',{target_id:record.targetId,
+          round_index:record.roundIndex||null,presentation_id:record.presentationId,attempts:record.attempts.length,valid_count:validCount});
         this.targetIndex++;this.nextTarget();
       } else if(now-record.onset>=this.config.pointTimeoutMs) {
         record.collectEnd=now;record.status='failed';this.block.status='failed';this.block.ended=now;
@@ -533,16 +555,26 @@
       const block=this.block;block.ended=performance.now();this.target=null;this.targetRecord=null;
       const all=block.targets.flatMap(t=>t.attempts);
       if(block.kind==='calibration') {
-        const fit=GazeCore.createCalibration(all.filter(a=>a.valid),{expectedTargetIds:CALIBRATION_TARGETS.map(t=>t.targetId),
-          minSamplesPerTarget:this.config.minValidFramesPerPoint,minTargetCount:9});
+        const fit=GazeCore.createRepeatedCalibration(all,{expectedTargets:CALIBRATION_TARGETS,
+          minSamplesPerPresentation:this.config.minValidFramesPerPoint});
         block.fit=fit;block.status=fit.ok?'complete':'failed';
+        const report=window.CalibrationReport.summarizeCalibration(fit);
         if(!fit.ok) {
-          this.enter('failure');this.showPanel('校准未通过',[String(fit.reason||'眼部特征变化不足，无法可靠拟合。'),'诊断已保存。请调整拍摄距离与光照，保持手机固定，再完整校准。'],
-            [['重新完整校准',()=>this.startBlock('calibration')],['下载诊断备份',()=>this.download('backup'),true],['暂停',()=>this.pause('fit_failed'),true]]);return;
+          this.enter('failure');this.clear();this.status.textContent=`v${VERSION} · 校准暂未生成模型 · 请查看报告`;
+          this.showPanel(report.headline,report.lines,
+            [['重新完整校准',()=>this.startBlock('calibration')],['下载诊断备份',()=>this.download('backup'),true],['暂停',()=>this.pause('fit_failed'),true]]);
+          this.appendPointReport(report.points,'查看逐点校准诊断');return;
         }
         this.model=fit.model;this.modelId=block.id;this.modelHash=hashModel(fit.model);block.modelHash=this.modelHash;
-        this.event('model_created',{model_id:this.modelId,model_hash:this.modelHash});
-        this.ready('校准完成，接下来独立验证');
+        this.event('model_created',{model_id:this.modelId,model_hash:this.modelHash,
+          calibration_protocol:this.config.calibrationProtocol,selected_candidate_id:fit.diagnostics.selectedCandidateId,
+          selection_rule:fit.diagnostics.selectionRule});
+        this.enter('calibration_report');this.clear();this.aois=[];
+        this.status.textContent=`v${VERSION} · 两轮校准已完成 · 尚未独立验证`;
+        this.showPanel(report.headline,report.lines,[['开始独立验证',()=>this.startBlock('validation')],
+          ['查看并保存诊断备份',()=>this.download('backup'),true],['重新完整校准',()=>this.startBlock('calibration'),true],
+          ['暂停',()=>this.pause('calibration_report_pause'),true]]);
+        this.appendPointReport(report.points,'查看9个位置的拟合、波动与两轮差异');
       } else {
         const evaluation=GazeCore.evaluateValidation(all,{...this.config.validation,expectedTargets:VALIDATION_TARGETS});
         block.evaluation=evaluation;block.status=evaluation.passed?'passed':'failed';
@@ -555,17 +587,26 @@
           [...(evaluation.passed?[['继续任务',()=>this.continueAfterValidation()]]:[]),
             ['重新完整校准',()=>this.startBlock('calibration'),true],
             ['下载诊断备份',()=>this.download('backup'),true],['暂停',()=>this.pause('validation_pause'),true]]);
+        this.appendPointReport(report.points,`查看各点结果与原因（${report.points.filter(p=>!p.passed).length} 个点未通过）`);
+      }
+    }
+    appendPointReport(points,title) {
+        if(!points.length)return;
         const details=document.createElement('details');details.className='validation-points';
-        const summary=document.createElement('summary');summary.textContent=`查看各点结果与原因（${report.points.filter(p=>!p.passed).length} 个点未通过）`;details.append(summary);
-        for(const point of report.points) {
-          const card=document.createElement('article');card.className=point.passed?'point-pass':'point-fail';
+        const summary=document.createElement('summary');summary.textContent=title;details.append(summary);
+        for(const point of points) {
+          const card=document.createElement('article');card.className=point.passed===true?'point-pass':point.passed===false?'point-fail':'point-diagnostic';
           const heading=document.createElement('h2');heading.textContent=point.label;card.append(heading);
           const overview=document.createElement('p');overview.textContent=point.summary;card.append(overview);
-          for(const line of point.details){const p=document.createElement('p');p.textContent=line;card.append(p);}
+          let destination=card;
+          if(point.passed===undefined) {
+            destination=document.createElement('details');destination.className='point-metrics';
+            const toggle=document.createElement('summary');toggle.textContent='展开此位置的两轮诊断';destination.append(toggle);card.append(destination);
+          }
+          for(const line of point.details){const p=document.createElement('p');p.textContent=line;destination.append(p);}
           details.append(card);
         }
         this.panel.insertBefore(details,Array.from(this.panel.children).find(el=>el.tagName==='BUTTON'));
-      }
     }
     continueAfterValidation() {
       if(this.phase!=='validation_report'||!this.validationOK)return;
@@ -761,5 +802,5 @@
     }
   }
   return {VERSION,SCHEMA,CONFIG,CALIBRATION_TARGETS,VALIDATION_TARGETS,GAZE_HEADERS,BEHAVIOR_HEADERS,RATING_HEADERS,EVENT_HEADERS,
-    csv,shuffled,generateCombinations,classify,dwell,smooth,hashModel,Experiment};
+    csv,shuffled,calibrationPlan,generateCombinations,classify,dwell,smooth,hashModel,Experiment};
 });
