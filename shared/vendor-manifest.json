@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "appVersion": "2.2.0",
+  "appVersion": "2.3.0",
   "package": "@mediapipe/face_mesh",
   "packageVersion": "0.4.1633559619",
   "source": "Existing repository food2/mp/package; no vendor files changed",
