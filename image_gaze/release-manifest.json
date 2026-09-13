@@ -1,0 +1,196 @@
+{
+  "appVersion": "image-pilot-0.1.0",
+  "scope": "Public code, author-licensed models and numerical fixtures only; no participant recordings.",
+  "files": [
+    {
+      "path": "NOTICE.md",
+      "bytes": 2286,
+      "sha256": "5a4182c75d77105be5aa93b7bde125ddba673bc24e797d37de5eff87bc361a57"
+    },
+    {
+      "path": "PREPROCESSING.md",
+      "bytes": 7200,
+      "sha256": "24961cb8d1a50e0de646fdadb8eecee382b744c4aafa7729a593ef8fc804846f"
+    },
+    {
+      "path": "README.md",
+      "bytes": 3361,
+      "sha256": "ecec9fb84b7d076d65f787e58a3f9223965de1374301696226106c247824e9eb"
+    },
+    {
+      "path": "gaze-worker.mjs",
+      "bytes": 1448,
+      "sha256": "74615cf421a8c346ac323c5096596314d8bf515a594f5991bad42e262e2fa532"
+    },
+    {
+      "path": "image-calibration.js",
+      "bytes": 13000,
+      "sha256": "c510d8f1c3fb2949cf658b531d131d9fbbe7b6926f772068f50c616c037b7e53"
+    },
+    {
+      "path": "image-calibration.test.cjs",
+      "bytes": 9033,
+      "sha256": "6deae77c00a4af80cfffdc42807b007be3cf629287c0ba601b65cd17b2e5f788"
+    },
+    {
+      "path": "mnn/LICENSE-GazeFollower-CC-BY-NC-SA-4.0.txt",
+      "bytes": 20848,
+      "sha256": "9e502ba75fd0fd30cea5497b438a4bc12f07f02bc932a7a6041fd6a18b8f46a0"
+    },
+    {
+      "path": "mnn/LICENSE-MNN-Apache-2.0.txt",
+      "bytes": 11346,
+      "sha256": "a830d59c4f98d110e0540d0581efada06192ba6e798434307d1794b07a290302"
+    },
+    {
+      "path": "mnn/LICENSE-flatbuffers-Apache-2.0.txt",
+      "bytes": 11342,
+      "sha256": "7ec9661a8afafab1eee3523d6f1a193eff76314a5ab10b4ce96aefd87621b0c3"
+    },
+    {
+      "path": "mnn/LICENSE-half-MIT.txt",
+      "bytes": 1100,
+      "sha256": "1269110471a5506d5cc9c115c57b855206f69a90cc57bbbf27860907067ed946"
+    },
+    {
+      "path": "mnn/base.mnn",
+      "bytes": 6245556,
+      "sha256": "2f96b95275fe6d7b79e98df3237ebb96e15ef5522c96968f08167da7e1954a96"
+    },
+    {
+      "path": "mnn/mnn-gaze-runtime.mjs",
+      "bytes": 30071,
+      "sha256": "939263509666667e9debaae8ce70451d528d2a9db8bd8a661575d457d7e01fa6"
+    },
+    {
+      "path": "mnn/mnn-gaze-runtime.wasm",
+      "bytes": 1745695,
+      "sha256": "bcafc4223138f01fc42b9901c6d066f1b0755189e189d2962b1704a34cfde2fc"
+    },
+    {
+      "path": "mnn/mnn-gaze.mjs",
+      "bytes": 2550,
+      "sha256": "48e5a1e288048732d3dad05e488c52cced866b99ed4fd6ef972a51ae3ebe2aba"
+    },
+    {
+      "path": "mnn/mobilenet_v4.mnn",
+      "bytes": 1641396,
+      "sha256": "db04d6568a15b85bd9d007e7f8ca7021422e390c24035a54d5108ae949f536d8"
+    },
+    {
+      "path": "pilot.css",
+      "bytes": 2355,
+      "sha256": "028aef64f987d0d5e872390ed5249329b1292c20a903340e930c691b12baa6aa"
+    },
+    {
+      "path": "pilot.html",
+      "bytes": 2161,
+      "sha256": "47fc39736899b0707d69f5614475fbdca80c821e0c9146ec6f18410a3f519a74"
+    },
+    {
+      "path": "pilot.js",
+      "bytes": 35431,
+      "sha256": "44965fe9208db1f49276b01ee30444183785fa8bda340df19ef6bb059bd16e5e"
+    },
+    {
+      "path": "pilot.test.cjs",
+      "bytes": 14099,
+      "sha256": "8f5ff4d167df6adc3b8b258e79de16683cb4a4150dcf71c42956d8804a03d132"
+    },
+    {
+      "path": "preprocess-oracle.json",
+      "bytes": 858027,
+      "sha256": "9d5d19cc04ec7756cd5d5124e307243761e0dad6445aba440d19325db57f2951"
+    },
+    {
+      "path": "preprocess.js",
+      "bytes": 11528,
+      "sha256": "b16f62316f19471597a566a3cf85f248039417be318fb1a23afcef70a99e9ace"
+    },
+    {
+      "path": "preprocess.test.cjs",
+      "bytes": 8803,
+      "sha256": "0f313ae35e876383b83247c12f46035c22df0934245b3dccf5f295c5722f88f7"
+    },
+    {
+      "path": "runtime-source/README.md",
+      "bytes": 8578,
+      "sha256": "bd45eefcd456c5b373120d68041b57cf2a4cd6de8075a1f3b62c0d4109b7be7b"
+    },
+    {
+      "path": "runtime-source/asset-manifest.json",
+      "bytes": 3426,
+      "sha256": "1769468962bcb640f8a52611cdc774d3940b99a18055dadd5d9e299e27e00d8f"
+    },
+    {
+      "path": "runtime-source/bootstrap_build_tools.py",
+      "bytes": 1877,
+      "sha256": "16bbd2ab9f4b94b8e86fc1b8b818c5c9e60a6c48c3dae0fc84bc7c9d9cf3a9c3"
+    },
+    {
+      "path": "runtime-source/build-tools-manifest.json",
+      "bytes": 221,
+      "sha256": "caf58014ad555d89b1916468b74f99528ea83ede21973c9c07db42dc728a6b11"
+    },
+    {
+      "path": "runtime-source/build_wasm.sh",
+      "bytes": 2296,
+      "sha256": "25e3ab5d9a7ff3899925bcc306b21ffa97bd3706e95bccacc5d1ba5711356e99"
+    },
+    {
+      "path": "runtime-source/dist-manifest.json",
+      "bytes": 1787,
+      "sha256": "75510c2407cdb780fa9b356aafe8cc993abbe2cf7d08196464686b4831a7a99a"
+    },
+    {
+      "path": "runtime-source/fetch_assets.py",
+      "bytes": 2550,
+      "sha256": "6cc93e57284a6271e4a5c1a96b9eb052f883f307f5e5ce2ca2b5d009ae02b990"
+    },
+    {
+      "path": "runtime-source/inspect_models.py",
+      "bytes": 3944,
+      "sha256": "e94c618b0b88c8145b46b336fc658f9b55d82b41329f18650a4de92d42787f98"
+    },
+    {
+      "path": "runtime-source/mnn-gaze.mjs",
+      "bytes": 2550,
+      "sha256": "48e5a1e288048732d3dad05e488c52cced866b99ed4fd6ef972a51ae3ebe2aba"
+    },
+    {
+      "path": "runtime-source/mnn_gaze.cpp",
+      "bytes": 4714,
+      "sha256": "d1d702f3dfd439ce6f5d0503e78319a50bbd2eb9fa57b85d6ef4876718051082"
+    },
+    {
+      "path": "runtime-source/model-inspection.json",
+      "bytes": 48181,
+      "sha256": "a37630b1fa37c681edb720f0b849621956eb8491b69ed1c6da40dd12eaa070f8"
+    },
+    {
+      "path": "runtime-source/test_wasm.mjs",
+      "bytes": 3731,
+      "sha256": "c7c47231eca4a30c2faa4e42663de924ad4bf2f54fe22095b14b9d4d7e05a07a"
+    },
+    {
+      "path": "runtime-source/wasm-parity.json",
+      "bytes": 2309,
+      "sha256": "2f92ecebbe6b96a48af02fed445fb8d61a00dcbe9887d0c99fa0153d11127af2"
+    },
+    {
+      "path": "selftest-fixture.json",
+      "bytes": 18072,
+      "sha256": "30095e0b2c70a5c975e710ad3c6293f65a5ffa88f090f53fe10937d1e81ab354"
+    },
+    {
+      "path": "selftest.html",
+      "bytes": 3153,
+      "sha256": "647291aa3dc673d313d901ba9b4c71db631d47318a281948d60f0ba9b340a196"
+    },
+    {
+      "path": "selftest.mjs",
+      "bytes": 13882,
+      "sha256": "16dd7405050cafcf1e1cacb2ba682a91cf99a99ad1bd36e034c9dc78cbb3d9f6"
+    }
+  ]
+}
