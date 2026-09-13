@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>手机眼动 · 图像模型预实验</title>
+<link rel="stylesheet" href="./pilot.css?v=0.1.0">
+<script defer src="../food2/mp/package/face_mesh.js"></script>
+<script defer src="../shared/tracking-adapter.js?v=2.3.0"></script>
+<script defer src="../shared/gaze-core.js?v=2.3.0"></script>
+<script defer src="./preprocess.js?v=0.1.0"></script>
+<script defer src="./image-calibration.js?v=0.1.0"></script>
+<script defer src="./pilot.js?v=0.1.0"></script>
+</head>
+<body>
+<canvas id="stage" aria-label="注视目标"></canvas>
+<video id="camera" autoplay muted playsinline webkit-playsinline aria-hidden="true"></video>
+<header><span id="status" role="status">图像模型预实验 · 0.1.0</span><button id="pause" hidden>暂停</button></header>
+<main id="panel">
+<p class="eyebrow">手机眼动 · 图像模型预实验</p>
+<h1>检验新的注视模型</h1>
+<p>用 iPhone Safari 打开，固定手机，使前置摄像头接近眼睛高度。保持约 30–40 厘米距离，光线均匀，减少镜片反光。</p>
+<p>程序会先显示两轮校准点，再显示一轮独立验证点。请自然地注视圆点，保持手机和头部位置。</p>
+<label for="model-choice">本次使用的模型</label>
+<select id="model-choice"><option value="mobilenet_v4">轻量图像模型</option><option value="base">原始图像模型（对照）</option></select>
+<p class="note">图像在设备上实时处理，不保存照片或视频，不上传采样数据。下载备份会包含数值特征和验证结果。本入口用于评估定位质量。</p>
+<button id="start" class="primary">开启摄像头并开始</button>
+<p class="credits">模型来自 GazeFollower，按 CC BY-NC-SA 4.0 使用。<a href="./NOTICE.md" target="_blank" rel="noopener">来源与许可</a></p>
+</main>
+<footer><button id="save">下载诊断备份</button><span id="save-status" role="status"></span></footer>
+<noscript>请启用 JavaScript 后使用。</noscript>
+</body></html>

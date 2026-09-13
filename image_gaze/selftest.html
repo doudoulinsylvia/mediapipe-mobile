@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>图像模型数值自测</title>
+<style>
+:root{font:16px/1.6 system-ui,-apple-system,sans-serif;color:#163c32;background:#f3f5f1}body{margin:0;padding:28px 20px;max-width:920px;margin-inline:auto}h1{font-size:1.65rem;line-height:1.3}p{margin:14px 0}.note{color:#51665e}.card{background:white;border:1px solid #d5e0d8;border-radius:18px;padding:22px;margin-top:20px}button{font:inherit;border:1px solid #bad0c4;background:#17644e;color:white;border-radius:10px;padding:12px 18px;margin:8px 10px 0 0;cursor:pointer}button:disabled{opacity:.5;cursor:wait}a{color:#17644e}label{display:flex;align-items:flex-start;gap:10px;margin:18px 0}input{width:20px;height:20px;flex-shrink:0;margin-top:4px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 ui-monospace,monospace;color:#173d32;background:#f2f6f3;border-radius:10px;padding:14px}li{margin:8px 0}#selftest-state{font-weight:700}body[data-selftest-status=passed] #selftest-state{color:#08723e}body[data-selftest-status=failed] #selftest-state{color:#a33b2f}canvas{max-width:100%;height:auto;border-radius:12px}small{display:block}.secondary{color:#17644e;background:#e9f0eb}
+</style>
+</head>
+<body data-selftest-status="idle">
+<h1>图像模型数值自测</h1>
+<p>检查真实 Web Worker 中两个公开模型能否运行，以及 258 个输出是否与 Python 参考值一致。</p>
+<p class="note"><strong>这不是眼动精度测试。</strong>不访问摄像头，不采集参与者数据。合成张量与示例人像没有注视目标真值；通过后仍须完成手机上的个人校准和独立验证。</p>
+<div class="card">
+<label><input type="checkbox" id="include-portrait"><span>额外检查官方示例人像：FaceMesh → 图像裁剪 → 两个模型。<small class="note">此项需要访问 Google 的公开图片地址及加载本网站的 FaceMesh 文件；网络失败会单独报告。</small></span></label>
+<button id="run-selftest">运行数值自测</button><button id="download-selftest" class="secondary" disabled>下载测试报告</button>
+<p id="selftest-state" role="status" aria-live="polite">等待开始</p>
+<ul id="selftest-results"></ul>
+</div>
+<div id="portrait-panel" class="card" hidden><p>官方示例人像上的检测框，仅用于检验调用链。</p><canvas id="portrait-preview"></canvas><p class="note">图片来源：<a href="https://storage.googleapis.com/mediapipe-assets/portrait.jpg">MediaPipe 官方测试资产</a>。本站不复制分发该图片。</p></div>
+<details class="card" open><summary>机器可读状态</summary><pre id="selftest-report">{"status":"idle","purpose":"runtime_numeric_selftest_not_gaze_accuracy"}</pre></details>
+<p class="note">运行可能需要下载约 10 MB 模型与程序。输出差异容限为 0.001 + 0.0001 × |参考值|，只用于浮点推理数值比较。<a href="./NOTICE.md">来源与许可</a> · <a href="./pilot.html">返回手机预实验</a></p>
+<script type="module" src="./selftest.mjs?v=0.1.0"></script>
+</body>
+</html>

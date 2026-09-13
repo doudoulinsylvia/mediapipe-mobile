@@ -1,0 +1,58 @@
+{
+  "gazefollower_revision": "7096ed6b9969d4e67c2a78f6a9862407a0b2d5aa",
+  "mnn_wasm": "3.5.0",
+  "mnn_native_reference": "3.6.1",
+  "emscripten": "4.0.14",
+  "cmake": "4.4.3",
+  "single_thread": true,
+  "wasm_simd": true,
+  "cross_origin_isolation_required": false,
+  "native_reference_api": "MNN.nn Module (author API), high precision",
+  "dist_files": [
+    {
+      "name": "LICENSE-GazeFollower-CC-BY-NC-SA-4.0.txt",
+      "bytes": 20848,
+      "sha256": "9e502ba75fd0fd30cea5497b438a4bc12f07f02bc932a7a6041fd6a18b8f46a0"
+    },
+    {
+      "name": "LICENSE-MNN-Apache-2.0.txt",
+      "bytes": 11346,
+      "sha256": "a830d59c4f98d110e0540d0581efada06192ba6e798434307d1794b07a290302"
+    },
+    {
+      "name": "LICENSE-flatbuffers-Apache-2.0.txt",
+      "bytes": 11342,
+      "sha256": "7ec9661a8afafab1eee3523d6f1a193eff76314a5ab10b4ce96aefd87621b0c3"
+    },
+    {
+      "name": "LICENSE-half-MIT.txt",
+      "bytes": 1100,
+      "sha256": "1269110471a5506d5cc9c115c57b855206f69a90cc57bbbf27860907067ed946"
+    },
+    {
+      "name": "base.mnn",
+      "bytes": 6245556,
+      "sha256": "2f96b95275fe6d7b79e98df3237ebb96e15ef5522c96968f08167da7e1954a96"
+    },
+    {
+      "name": "mnn-gaze-runtime.mjs",
+      "bytes": 30071,
+      "sha256": "939263509666667e9debaae8ce70451d528d2a9db8bd8a661575d457d7e01fa6"
+    },
+    {
+      "name": "mnn-gaze-runtime.wasm",
+      "bytes": 1745695,
+      "sha256": "bcafc4223138f01fc42b9901c6d066f1b0755189e189d2962b1704a34cfde2fc"
+    },
+    {
+      "name": "mnn-gaze.mjs",
+      "bytes": 2550,
+      "sha256": "48e5a1e288048732d3dad05e488c52cced866b99ed4fd6ef972a51ae3ebe2aba"
+    },
+    {
+      "name": "mobilenet_v4.mnn",
+      "bytes": 1641396,
+      "sha256": "db04d6568a15b85bd9d007e7f8ca7021422e390c24035a54d5108ae949f536d8"
+    }
+  ]
+}
