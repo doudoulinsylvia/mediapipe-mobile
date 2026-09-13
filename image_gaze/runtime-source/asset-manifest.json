@@ -1,0 +1,68 @@
+{
+  "repository": "https://github.com/GanchengZhu/GazeFollower",
+  "revision": "7096ed6b9969d4e67c2a78f6a9862407a0b2d5aa",
+  "downloaded": [
+    {
+      "path": "README.md",
+      "source": "https://raw.githubusercontent.com/GanchengZhu/GazeFollower/7096ed6b9969d4e67c2a78f6a9862407a0b2d5aa/README.md",
+      "bytes": 7190,
+      "sha256": "d45d64225dee69424dd44aa90d4ae027b1fcc57da82f2cf8b7c72e46d43b51e2",
+      "git_blob": "bb90b25b50d98a1f3fe4ae446dc618b870fd9b1c"
+    },
+    {
+      "path": "LICENSE-CC-BY-NC-SA",
+      "source": "https://raw.githubusercontent.com/GanchengZhu/GazeFollower/7096ed6b9969d4e67c2a78f6a9862407a0b2d5aa/LICENSE-CC-BY-NC-SA",
+      "bytes": 20848,
+      "sha256": "9e502ba75fd0fd30cea5497b438a4bc12f07f02bc932a7a6041fd6a18b8f46a0",
+      "git_blob": "bfef380bf7d9cb74ec9ba533b37c3fbeef3bdc09"
+    },
+    {
+      "path": "requirements.txt",
+      "source": "https://raw.githubusercontent.com/GanchengZhu/GazeFollower/7096ed6b9969d4e67c2a78f6a9862407a0b2d5aa/requirements.txt",
+      "bytes": 68,
+      "sha256": "7b60ff6c83dad9c6d01e9b5f7b368cdb1741edc8975c77265421b56dc1ad8aec",
+      "git_blob": "b753996e0a7015322d4a302787677d2f3000cc68"
+    },
+    {
+      "path": "gazefollower/gaze_estimator/MGazeNetGazeEstimator.py",
+      "source": "https://raw.githubusercontent.com/GanchengZhu/GazeFollower/7096ed6b9969d4e67c2a78f6a9862407a0b2d5aa/gazefollower/gaze_estimator/MGazeNetGazeEstimator.py",
+      "bytes": 6413,
+      "sha256": "cbcb5be40d7edc3000228fa1b1f78cc7e6f49e862beb44a94cedde0d11aa3540",
+      "git_blob": "91d914f3c18cf6fe1eb9bfb8ae77543f3bb45ff2"
+    },
+    {
+      "path": "gazefollower/face_alignment/MediaPipeFaceAlignment.py",
+      "source": "https://raw.githubusercontent.com/GanchengZhu/GazeFollower/7096ed6b9969d4e67c2a78f6a9862407a0b2d5aa/gazefollower/face_alignment/MediaPipeFaceAlignment.py",
+      "bytes": 9982,
+      "sha256": "5378917b8f53d4192a22e02fbd0fdbe42064a408db22d4a641bdca2e902426ff",
+      "git_blob": "32849207c91cfcc628f787f5f89ff83c8d2b113f"
+    },
+    {
+      "path": "gazefollower/camera/WebCamCamera.py",
+      "source": "https://raw.githubusercontent.com/GanchengZhu/GazeFollower/7096ed6b9969d4e67c2a78f6a9862407a0b2d5aa/gazefollower/camera/WebCamCamera.py",
+      "bytes": 4659,
+      "sha256": "af70933cab18ee807c9acf48637a23eb61b22a237e97d8701d7f09e5f63249cb",
+      "git_blob": "5ef624e9ad64cbec482e34a7fed2428c82b87434"
+    },
+    {
+      "path": "gazefollower/res/model_weights/base.mnn",
+      "source": "https://raw.githubusercontent.com/GanchengZhu/GazeFollower/7096ed6b9969d4e67c2a78f6a9862407a0b2d5aa/gazefollower/res/model_weights/base.mnn",
+      "bytes": 6245556,
+      "sha256": "2f96b95275fe6d7b79e98df3237ebb96e15ef5522c96968f08167da7e1954a96",
+      "git_blob": "fd964dcae1207d377cddc77f175488d446dd5b16"
+    },
+    {
+      "path": "gazefollower/res/model_weights/mobilenet_v4.mnn",
+      "source": "https://raw.githubusercontent.com/GanchengZhu/GazeFollower/7096ed6b9969d4e67c2a78f6a9862407a0b2d5aa/gazefollower/res/model_weights/mobilenet_v4.mnn",
+      "bytes": 1641396,
+      "sha256": "db04d6568a15b85bd9d007e7f8ca7021422e390c24035a54d5108ae949f536d8",
+      "git_blob": "f47f8bd7511d174b634fcd679401b73a018cdabd"
+    }
+  ],
+  "missing": [],
+  "all_model_files": [
+    "gazefollower/res/model_weights/base.mnn",
+    "gazefollower/res/model_weights/blaze_face.mnn",
+    "gazefollower/res/model_weights/mobilenet_v4.mnn"
+  ]
+}

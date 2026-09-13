@@ -1,0 +1,78 @@
+{
+  "purpose": "numeric_runtime_parity_not_participant_accuracy",
+  "models": {
+    "base": {
+      "runtimeVersion": "3.5.0",
+      "cases": {
+        "flat": {
+          "maxAbsoluteDifference": 0.00012302398681640625,
+          "maxToleranceRatio": 0.06752919067050205,
+          "medianInferenceMs": 29.890124999999955,
+          "outputXY": [
+            -0.8665547966957092,
+            -8.21802043914795
+          ]
+        },
+        "pattern": {
+          "maxAbsoluteDifference": 0.00003147125244140625,
+          "maxToleranceRatio": 0.023633849990552087,
+          "medianInferenceMs": 29.233292000000006,
+          "outputXY": [
+            1.528253436088562,
+            -5.248966693878174
+          ]
+        },
+        "shifted_rect": {
+          "maxAbsoluteDifference": 0.000034332275390625,
+          "maxToleranceRatio": 0.027343324362704743,
+          "medianInferenceMs": 30.160000000000025,
+          "outputXY": [
+            1.3987550735473633,
+            -5.176448822021484
+          ]
+        }
+      }
+    },
+    "mobilenet_v4": {
+      "runtimeVersion": "3.5.0",
+      "cases": {
+        "flat": {
+          "maxAbsoluteDifference": 0.0001176595687866211,
+          "maxToleranceRatio": 0.1072591818912943,
+          "medianInferenceMs": 3.511041000000091,
+          "outputXY": [
+            1.164130687713623,
+            -6.752365589141846
+          ]
+        },
+        "pattern": {
+          "maxAbsoluteDifference": 0.00013768672943115234,
+          "maxToleranceRatio": 0.12741150964536566,
+          "medianInferenceMs": 3.4112089999999853,
+          "outputXY": [
+            0.09818993508815765,
+            -8.143451690673828
+          ]
+        },
+        "shifted_rect": {
+          "maxAbsoluteDifference": 0.00016355514526367188,
+          "maxToleranceRatio": 0.13420998408026993,
+          "medianInferenceMs": 3.427000000000021,
+          "outputXY": [
+            -0.25698649883270264,
+            -8.235393524169922
+          ]
+        }
+      }
+    }
+  },
+  "assertions": [
+    "two genuine model binaries load",
+    "four input contracts and 258 finite outputs",
+    "six model/fixture native-WASM comparisons",
+    "independent returned output storage",
+    "wrong lengths rejected",
+    "NaN rejected with valid recovery",
+    "idempotent disposal"
+  ]
+}
