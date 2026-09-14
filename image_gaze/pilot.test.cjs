@@ -9,7 +9,7 @@ function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve
 function clock(){
   let now=0,id=0;const tasks=new Map();
   return {get now(){return now;},get size(){return tasks.size;},
-    setTimeout(fn,ms=0){const n=++id;tasks.set(n,{fn,at:now+ms});return n;},
+    setTimeout(fn,ms=0){const n=++id;tasks.set(n,{fn,at:now+Math.max(1,ms)});return n;},
     clearTimeout(n){tasks.delete(n);},
     async advance(ms){
       const end=now+ms;await flush();
@@ -84,7 +84,12 @@ function harness(options={}){
   let stops=0,closed=0;const track={stop(){stops++;},getSettings:()=>({width:640,height:480,frameRate:30})};
   const stream={getTracks:()=>[track],getVideoTracks:()=>[track]};
   const video=element('camera');video.readyState=2;video.videoWidth=640;video.videoHeight=480;
-  Object.defineProperty(video,'currentTime',{get:()=>c.now/1000});video.play=()=>options.playPromise||Promise.resolve();
+  let mediaReads=0;
+  Object.defineProperty(video,'currentTime',{get:()=>{
+    mediaReads++;
+    if(options.mediaReadLimit&&mediaReads>options.mediaReadLimit)throw Error('test_microtask_loop_budget_exhausted');
+    return options.mediaAdvancesOnRead?mediaReads/30:c.now/1000;
+  }});video.play=()=>options.playPromise||Promise.resolve();
   const adapter={state:'idle',initialize:()=>options.initializePromise||Promise.resolve(),onResults(fn){this.callback=fn;},
     send(){if(options.sendPromise)return options.sendPromise;this.callback({multiFaceLandmarks:[[]]});return Promise.resolve();},close(){closed++;}};
   const root={document:{getElementById:element,createElement:()=>element('created-'+elements.size),querySelector:s=>s==='header'?header:footer,
@@ -92,7 +97,7 @@ function harness(options={}){
     navigator:{userAgent:'test Safari',mediaDevices:{getUserMedia:()=>options.cameraPromise||Promise.resolve(stream)}},
     crypto:{randomUUID:()=> 'fixture',getRandomValues:a=>{a[0]=1;return a;}},performance:{now:()=>c.now},
     ImageCalibration:{fitCalibration(targets){fits.push(JSON.parse(JSON.stringify(targets)));return {ok:true,selectedCandidateId:'fixture',model:{candidateId:'fixture',fixed:[1,2]}};},predict(model,output){return {x:output[0],y:output[1],valid:true};}},
-    GazeCore:{...Core,extractFeatures:()=>({features:[.5,.5,.5,.5],diagnostics:{headProxy:[]},quality:{valid:true}})},
+    GazeCore:{...Core,extractFeatures:()=>({features:[.5,.5,.5,.5],diagnostics:{headProxy:[]},quality:{valid:!options.invalidQuality,reason:options.invalidQuality?'no_face':null}})},
     MGazePreprocess:{contract:{id:'fixture-preprocessing'},roisFromLandmarks:()=>({ok:true,face:{},leftEye:{},rightEye:{}}),prepareInputs:()=>({face:{data:[]},left:{data:[]},right:{data:[]},rect:{data:[]}})},
     TrackingAdapter:{create:()=>adapter},
     Worker:class{
@@ -108,7 +113,7 @@ function harness(options={}){
   };
   if(options.missing)delete root[options.missing];
   const app=Pilot.createApp(root);
-  return {app,c,root,e:element,stream,workers,fits,listeners,visualListeners,get stops(){return stops;},get closed(){return closed;},
+  return {app,c,root,e:element,stream,workers,fits,listeners,visualListeners,get stops(){return stops;},get closed(){return closed;},get mediaReads(){return mediaReads;},
     async until(predicate,limit=130000){const deadline=c.now+limit;while(!predicate()&&c.now<deadline)await c.advance(50);assert.ok(predicate(),'condition not reached');}};
 }
 
@@ -126,6 +131,27 @@ test('cancel during permission stops a stream granted later; no model or samplin
 test('a synchronous Worker construction failure also cleans up a later camera permission result',async()=>{
   const d=deferred(),h=harness({cameraPromise:d.promise,workerConstructorThrows:true});await h.app.start();d.resolve(h.stream);await flush();
   assert.equal(h.stops,1);assert.match(h.e('panel').innerHTML,/worker_constructor_failure/);assert.equal(h.app.getState().running,false);
+});
+test('immediately resolved FaceMesh and continuously advancing media still yield to timers when quality is invalid',async()=>{
+  // This branch never calls the image-model Worker. A read budget makes the
+  // pre-fix microtask-only loop fail deterministically instead of hanging Node.
+  // Real event-loop turn, unlike flush(), drains all queued microtasks first.
+  const options={mediaAdvancesOnRead:true,mediaReadLimit:200,invalidQuality:true};
+  const h=harness(options),started=h.app.start();
+  await new Promise(resolve=>setImmediate(resolve));
+  try{
+    assert.ok(h.mediaReads<=4,'a sampling iteration must yield a macrotask before submitting another frame');
+    assert.equal(h.app.getState().running,true);
+    assert.notEqual(h.app.getState().backup.session.phase,'failed');
+    options.mediaReadLimit=0;await h.c.advance(3300);
+    const backup=h.app.getState().backup;
+    assert.ok(Number.isFinite(backup.session.preparation.completedAt),'preparation must advance even when no face is valid');
+    assert.ok(backup.events.some(e=>e.event==='preparation_completed'));
+    assert.ok(backup.events.some(e=>e.event==='target_onset'));
+    assert.ok(backup.gaze.every(row=>!row.valid));
+  }finally{
+    h.app.pause('test_complete');await h.c.advance(100);await started;
+  }
 });
 test('camera permission, video playback, FaceMesh initialization and FaceMesh inference all have bounded failure paths',async()=>{
   for(const [options,duration,reason] of [[{cameraPromise:new Promise(()=>{})},60001,'camera_permission_timeout'],
