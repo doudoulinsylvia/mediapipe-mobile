@@ -1,4 +1,4 @@
-# 手机图像眼动预实验 0.1.0 — 来源与许可
+# 手机图像眼动预实验 0.1.1 — 来源与许可
 
 本入口由当前实验项目独立实现个人校准、独立验证、采样记录和手机页面。图像模型与 ROI 预处理参考 Gancheng Zhu / GC Zhu 的 [GazeFollower](https://github.com/GanchengZhu/GazeFollower)，固定提交为 `7096ed6b9969d4e67c2a78f6a9862407a0b2d5aa`。
 

@@ -1,11 +1,11 @@
 {
-  "appVersion": "image-pilot-0.1.0",
+  "appVersion": "image-pilot-0.1.1",
   "scope": "Public code, author-licensed models and numerical fixtures only; no participant recordings.",
   "files": [
     {
       "path": "NOTICE.md",
       "bytes": 2286,
-      "sha256": "5a4182c75d77105be5aa93b7bde125ddba673bc24e797d37de5eff87bc361a57"
+      "sha256": "69e17f2193934cbdce00134b480c856d3e7dc4ea5bff6c5820b06df7a01ecaad"
     },
     {
       "path": "PREPROCESSING.md",
@@ -14,8 +14,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 3361,
-      "sha256": "ecec9fb84b7d076d65f787e58a3f9223965de1374301696226106c247824e9eb"
+      "bytes": 3820,
+      "sha256": "d3302e970d84718e2d2ee1a6bf4ab67c0a036433c9f036c404375b4b25d7b4cf"
     },
     {
       "path": "gaze-worker.mjs",
@@ -84,18 +84,18 @@
     },
     {
       "path": "pilot.html",
-      "bytes": 2161,
-      "sha256": "47fc39736899b0707d69f5614475fbdca80c821e0c9146ec6f18410a3f519a74"
+      "bytes": 2197,
+      "sha256": "d20394bbaa1c0ced958128c53f4702b5b70005a6f0eeea4d4f8f598a7cae8f18"
     },
     {
       "path": "pilot.js",
-      "bytes": 35431,
-      "sha256": "44965fe9208db1f49276b01ee30444183785fa8bda340df19ef6bb059bd16e5e"
+      "bytes": 37059,
+      "sha256": "791f5ee12a7674efcc1af3b657c5f217281257486a37fb6ed88f25f0bc6eca41"
     },
     {
       "path": "pilot.test.cjs",
-      "bytes": 14099,
-      "sha256": "8f5ff4d167df6adc3b8b258e79de16683cb4a4150dcf71c42956d8804a03d132"
+      "bytes": 15714,
+      "sha256": "41a5742f2538c90f8983aa8290a9af47fb814cf982162f9e0e5fef410b43cbf7"
     },
     {
       "path": "preprocess-oracle.json",

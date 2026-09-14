@@ -86,7 +86,7 @@
   const {document,navigator,crypto,performance,ImageCalibration,GazeCore,MGazePreprocess,TrackingAdapter,Worker,URL,Blob}=root;
   const setTimeout=root.setTimeout.bind(root),clearTimeout=root.clearTimeout.bind(root),requestAnimationFrame=root.requestAnimationFrame.bind(root);
   const addEventListener=root.addEventListener.bind(root),location=root.location;
-  const APP = 'image-pilot-0.1.0';
+  const APP = 'image-pilot-0.1.1';
   const MODELS = Object.freeze({
     mobilenet_v4: { file: 'mobilenet_v4.mnn', label: '轻量图像模型', sha256: 'db04d6568a15b85bd9d007e7f8ca7021422e390c24035a54d5108ae949f536d8' },
     base: { file: 'base.mnn', label: '原始图像模型', sha256: '2f96b95275fe6d7b79e98df3237ebb96e15ef5522c96968f08167da7e1954a96' }
@@ -128,7 +128,7 @@
     return a;
   };
   function event(name, detail={}) { if (backup) backup.events.push({ timestamp: performance.now(), event: name, detail }); }
-  function status(text) { $('status').textContent = '图像 0.1.0 · '+text; }
+  function status(text) { $('status').textContent = '图像 0.1.1 · '+text; }
   function resize() {
     width = root.innerWidth; height = root.innerHeight;
     const dpr = root.devicePixelRatio || 1;
@@ -168,8 +168,8 @@
   function waitTask(promise,ms,reason,t,onLate) {
     return scope.wait(promise,ms,reason,onLate).then(value=>{try{check(t);}catch(e){if(onLate)onLate(value);throw e;}return value;});
   }
-  async function waitUntil(deadline,t,point=null) {
-    while (performance.now()<deadline) { check(t); if(point) draw(point,Math.max(0,(performance.now()-point.collectStart)/CONFIG.collectMs)); await sleep(30); }
+  async function waitUntil(deadline,t,point=null,onTick=null) {
+    while (performance.now()<deadline) { check(t); if(point) draw(point,Math.max(0,(performance.now()-point.collectStart)/CONFIG.collectMs)); if(onTick)onTick(); await sleep(30); }
     check(t);
   }
   function rpc(type, args={}) {
@@ -216,7 +216,7 @@
     const activePoint=current||inFlight?.presentation;
     if(activePoint?.status==='collecting'){activePoint.status=state;activePoint.ended=now;activePoint.failure=reason;}
     if(activeBlock?.status==='collecting'){activeBlock.status=state;activeBlock.ended=now;activeBlock.failure=reason;}
-    if(inFlight?.row&&!inFlight.row.completedAt){Object.assign(inFlight.row,{valid:false,reason,state:'aborted',completedAt:now,pipelineMs:now-inFlight.row.capturedAt});}
+    if(inFlight?.row&&!inFlight.row.completedAt){Object.assign(inFlight.row,{valid:false,reason,state:'aborted',pipelineStage:'aborted',completedAt:now,pipelineMs:now-inFlight.row.capturedAt});}
   }
   async function cameraReady(cameraPromise,t) {
     const stop=s=>s.getTracks().forEach(track=>track.stop());
@@ -244,7 +244,7 @@
       const row={sampleId,capturedAt,timestamp:capturedAt,completedAt:null,mediaTime:lastMedia,phase:backup.session.phase,
         presentationId:p?.presentationId||null,roundIndex:p?.roundIndex??null,
         targetId:p?.targetId||null,targetX:p?.targetX??null,targetY:p?.targetY??null,
-        valid:false,reason:null,output:null,x:null,y:null,state:'pending'};
+        valid:false,reason:null,output:null,x:null,y:null,state:'pending',pipelineStage:'capture'};
       const capturedInWindow=collectionDecision(p,capturedAt,capturedAt).attempt;
       row.capturedInCollectionWindow=capturedInWindow;
       backup.gaze.push(row);
@@ -257,6 +257,7 @@
       let fatal=null;
       try {
         frameContext.drawImage(video,0,0,frame.width,frame.height);landmarks=null;
+        row.pipelineStage='face_mesh';
         await waitTask(detector.send({image:frame,timestamp:capturedAt}),CONFIG.frameTimeoutMs,'face_mesh_inference_timeout',t);
         row.faceFinishedAt=performance.now();
         const geometry=GazeCore.extractFeatures(landmarks,frame.width,frame.height);
@@ -267,9 +268,11 @@
           const regions=MGazePreprocess.roisFromLandmarks(landmarks,frame.width,frame.height);
           if(!regions.ok) row.reason=regions.reason;
           else {
+            row.pipelineStage='image_preprocessing';
             const rgba=frameContext.getImageData(0,0,frame.width,frame.height).data;
             const input=MGazePreprocess.prepareInputs({rgba,width:frame.width,height:frame.height,...regions,sourceMirrored:false});
             row.regions={face:regions.face,leftEye:regions.leftEye,rightEye:regions.rightEye};
+            row.pipelineStage='image_model';
             const result=await rpc('infer',{inputs:{face:input.face.data,left:input.left.data,right:input.right.data,rect:input.rect.data}}); check(t);
             if(!Array.isArray(result.output)||result.output.length!==258||!result.output.every(finite))throw Error('invalid_network_output');
             row.output=result.output; row.networkInferenceMs=result.inferenceMs;row.valid=true;
@@ -284,7 +287,7 @@
         if(e.message.includes('timeout')||detector.state==='failed'||consecutiveErrors>=3)fatal=e;
       } finally {
         if(row.state!=='aborted') {
-          row.completedAt=performance.now();row.pipelineMs=row.completedAt-capturedAt;row.state='complete';
+          row.completedAt=performance.now();row.pipelineMs=row.completedAt-capturedAt;row.state='complete';row.pipelineStage='complete';
           const decision=collectionDecision(p,capturedAt,row.completedAt,current===p);
           row.windowReason=decision.reason;
           if(decision.attempt&&!decision.accepted){row.valid=false;row.reason=row.reason||decision.reason;}
@@ -293,6 +296,11 @@
         if(inFlight===job)inFlight=null;resolveFinished();
       }
       if(fatal)throw fatal;
+      // FaceMesh may finish synchronously. Rejected quality/ROI frames skip the
+      // Worker round-trip, so awaiting send alone need not yield to browser
+      // tasks. Explicitly yield after EVERY frame so timers, paint and pause
+      // can run even when every frame is invalid and media time keeps advancing.
+      await sleep(0);
     }
   }
   async function present(target,kind,index,total,roundIndex,t) {
@@ -326,8 +334,21 @@
     resize();grid=generateTargetGrid(measureViewport());CAL=grid.calibration;VAL=grid.validation;gridLocked=true;
     backup.session.targetGrid=grid;backup.session.viewport={width,height,dpr:root.devicePixelRatio||1};
     backup.calibration.calibrationTargets=CAL;backup.calibration.validationTargets=VAL;
-    backup.session.phase='preparation'; draw(CAL[4]); status('准备 · 注视中央圆点');
-    await waitUntil(performance.now()+3000,t);
+    backup.session.phase='preparation'; draw(CAL[4]);
+    const startedAt=performance.now();
+    const preparation={startedAt,deadline:startedAt+3000,completedAt:null,lastHeartbeatAt:null};
+    backup.session.preparation=preparation;event('preparation_started',{...preparation});
+    await waitUntil(preparation.deadline,t,null,()=>{
+      preparation.lastHeartbeatAt=performance.now();
+      status('准备 '+Math.ceil((preparation.deadline-performance.now())/1000)+' 秒 · 注视中央圆点');
+      const last=backup.gaze.at(-1),completed=last?.state==='complete'?last:backup.gaze.at(-2);
+      const reason=completed?.reason;
+      const hint=reason==='no_face'?'未检测到人脸':reason==='eye_closed_or_occluded'?'眼睛遮挡或闭合':
+        reason?.startsWith('temporal_')?'等待图像稳定':completed?.valid?'已收到有效图像':
+        completed?.state==='complete'?'图像未达采样条件':last?.pipelineStage==='image_model'?'等待图像模型返回':'等待人脸检测返回';
+      $('save-status').textContent=hint;
+    });
+    preparation.completedAt=performance.now();event('preparation_completed',{...preparation});$('save-status').textContent='';
     const block={id:'calibration-1',kind:'calibration',started:performance.now(),targets:[],status:'collecting'};
     backup.calibration.blocks.push(block); backup.session.phase='calibration';
     for(const round of [1,2]) { const order=shuffle(CAL); for(let i=0;i<order.length;i++)await present(order[i],'calibration',i+1,9,round,t); }
@@ -400,7 +421,7 @@
       // cleanup before constructing anything else that can fail synchronously.
       const cameraPromise=navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:'user',width:{ideal:640},height:{ideal:480},frameRate:{ideal:30,max:30}}});
       const cameraTask=cameraReady(cameraPromise,t);cameraTask.catch(()=>{});
-      worker=new Worker('./gaze-worker.mjs?v=0.1.0',{type:'module'});
+      worker=new Worker('./gaze-worker.mjs?v=0.1.1',{type:'module'});
       worker.onmessage=({data})=>{if(t!==token||!running)return;const p=pending.get(data.id);if(p){pending.delete(data.id);data.ok?p.resolve(data.result):p.reject(Error(data.error));}};
       const workerFailed=e=>{const error=Error(e.message||'model_worker_failed');for(const p of pending.values())p.reject(error);pending.clear();fail(error,t);};
       worker.onerror=workerFailed;worker.onmessageerror=()=>workerFailed({message:'model_worker_message_failed'});
